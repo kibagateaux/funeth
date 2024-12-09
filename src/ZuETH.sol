@@ -1,42 +1,6 @@
-interface IERC20 { 
-    function balanceOf(address mate) external returns(uint256);
-    function transfer(address to, uint256 amount) external returns(bool);
-    function transferFrom(address from, address to, uint256 amount) external returns(bool);
+import { IZuETH, IERC20, IAaveMarket } from "./Interfaces.sol";
 
-    //aave debt token
-    function approveDelegation(address mate,uint256 dubloons) external returns(bool);
-}
-
-  struct ReserveConfigurationMap {
-    uint256 data; // uint encoded. not important to us. see https://github.com/aave/aave-v3-core/blob/782f51917056a53a2c228701058a6c3fb233684a/contracts/protocol/libraries/types/DataTypes.sol
-  }
-  struct ReserveData {
-    ReserveConfigurationMap configuration;
-    uint128 liquidityIndex;
-    uint128 currentLiquidityRate;
-    uint128 variableBorrowIndex;
-    uint128 currentVariableBorrowRate;
-    uint128 currentStableBorrowRate;
-    uint40 lastUpdateTimestamp;
-    uint16 id;
-    address aTokenAddress; // WE USE THIS
-    address stableDebtTokenAddress;
-    address variableDebtTokenAddress; // WE (could) USE THIS
-    address interestRateStrategyAddress;
-    uint128 accruedToTreasury;
-    uint128 unbacked;
-    uint128 isolationModeTotalDebt;
-  }
-
-interface AaveMarket {
-    function setUserEMode(uint8 categoryId) external;
-    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
-    function withdraw(address asset, uint256 amount, address to) external returns (uint256);
-    function getReserveData(address asset) external view returns (ReserveData memory);
-  }
-
-
-contract ZuToken {
+contract ZuToken is IZuETH {
     // Multisig deployed on Mainnet, Arbitrum, Base, OP,
     address public constant zuCityTreasury = address(0x0);
 
@@ -48,7 +12,7 @@ contract ZuToken {
     /// Token to accept for home payments in ZuCity
     IERC20 public reserveToken;
     /// Aave Pool we want to use
-    AaveMarket public aaveMarket;
+    IAaveMarket public aaveMarket;
     /// Aave yield bearing token for reserveToken. Provides live zuETH balance.
     IERC20 public aToken;
     /// Aave variable debt token that we let popups borrow against ZuCity collateral
@@ -57,8 +21,9 @@ contract ZuToken {
     event Approval(address indexed me, address indexed mate, uint256 dubloons);
     event Transfer(address indexed me, address indexed mate, uint256 dubloons);
     
-    event Deposit(address indexed mate, uint256 dubloons);
-    event Withdrawal(address indexed me, uint256 dubloons);
+    /* who deposited, how much, where they want yield directed, who recruited mate */
+    event Deposit(address indexed mate, uint256 dubloons, address indexed city, address indexed referrer);
+    event Withdrawal(address indexed me, uint256 dubloons, address indexed referrer);
     
     event Farm(address indexed market, address indexed reserve, uint256 dubloons);
     event Reserve(address indexed market, address indexed reserve, uint256 dubloons);
@@ -87,7 +52,7 @@ contract ZuToken {
 
         name = _name;
         symbol = _sym;
-        aaveMarket = AaveMarket(market);
+        aaveMarket = IAaveMarket(market);
         reserveToken = IERC20(_reserveToken);
         aToken = IERC20(pool.aTokenAddress);
         debtToken = IERC20(_debtToken);
@@ -102,8 +67,14 @@ contract ZuToken {
         balanceOf[msg.sender] += dubloons;
         totalSupply += dubloons;
 
-        emit Deposit(msg.sender, dubloons);
+        emit Deposit(msg.sender, dubloons, address(this), address(this));
     }
+
+    function depositWithPreference(uint256 dubloons, address city, address referrer) public {
+        deposit(dubloons);
+        emit Deposit(msg.sender, dubloons, city, referrer);
+    }
+
 
     function withdraw(uint256 dubloons) public {
         require(balanceOf[msg.sender] >= dubloons);
