@@ -1,3 +1,5 @@
+pragma solidity ^0.8.26;
+
 // extr legl 
 // receiving your ZuCityResidency does not gaurantee access to ZuCity locations. ZuCity does not own properties.Individual property owners have the right to approve or reject any visitors
 // One residency NFT is required per person to stay in a ZuCity.

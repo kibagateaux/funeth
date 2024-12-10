@@ -1,8 +1,17 @@
-interface IERC20 { 
-    function balanceOf(address mate) external returns(uint256);
-    function transfer(address to, uint256 amount) external returns(bool);
-    function transferFrom(address from, address to, uint256 amount) external returns(bool);
+pragma solidity ^0.8.26;
 
+interface ERC20 {
+    function totalSupply() external returns(uint256);
+    function balanceOf(address mate) external returns(uint256);
+    function transfer(address to, uint256 dubloons) external returns(bool);
+    function transferFrom(address from, address to, uint256 dubloons) external returns(bool);
+    function approve(address spender, uint256 dubloons) external returns(bool);
+    function allowance(address mate, address spender) external returns(uint256);
+}
+
+interface IERC20 is ERC20 { 
+    // WETH
+    function deposit() payable external returns(bool);
     // aave debt token
     function approveDelegation(address mate,uint256 dubloons) external returns(bool);
 }
@@ -35,15 +44,23 @@ interface IAaveMarket {
     function getReserveData(address asset) external view returns (ReserveData memory);
   }
 
-interface IZuETH {
-    function initialize(address _reserveToken, address market, address _debtToken, string memory _name, string memory _sym) public;
-    function deposit(uint256 dubloons) public;
-    function depositWithPreference(uint256 dubloons, address city, address referrer) public;
-    function withdraw(uint256 dubloons) public;
-    function approve(address mate, uint256 dubloons) public returns (bool);
-    function transfer(address mate, uint256 dubloons) public returns (bool);
-    function transferFrom(address me, address mate, uint256 dubloons) public returns (bool);
-    function farm(uint256 dubloons) public;
-    function reserve(uint256 dubloons) public;
-    function lend(address mate, uint256 dubloons) public;
+interface IZuETH is ERC20 {
+
+    function initialize(address _reserveToken, address market, address _debtToken, string memory _name, string memory _sym) external;
+    function deposit(uint256 dubloons) external;
+    function depositWithPreference(address receiver, uint256 dubloons, address city, address referrer) external;
+    function withdraw(uint256 dubloons) external;
+    function approve(address mate, uint256 dubloons) external returns (bool);
+    function transfer(address mate, uint256 dubloons) external returns (bool);
+    function transferFrom(address me, address mate, uint256 dubloons) external returns (bool);
+    function farm(uint256 dubloons) external;
+    function reserve(uint256 dubloons) external;
+    function lend(address mate, uint256 dubloons) external;
+
+    function reserveToken() external returns(IERC20);
+    function aaveMarket() external returns(IAaveMarket);
+    function aToken() external returns(IERC20);
+    function debtToken() external returns(IERC20);
+    function underlying() external returns(uint256);
+
 }

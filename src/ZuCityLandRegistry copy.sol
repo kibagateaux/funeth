@@ -1,3 +1,5 @@
+pragma solidity ^0.8.26;
+
 // extr legl 
 // staking to a property nor the initation of the sales process guarantess eventual ownership of the property
 // possession of the NFT does not entitle you to any rights or ownership of the associate property

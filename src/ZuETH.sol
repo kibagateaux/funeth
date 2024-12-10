@@ -1,13 +1,15 @@
-import { IZuETH, IERC20, IAaveMarket } from "./Interfaces.sol";
+pragma solidity ^0.8.26;
 
-contract ZuToken is IZuETH {
+import {IZuETH, IERC20, IAaveMarket, ReserveData} from "./Interfaces.sol";
+
+contract ZuETH is IZuETH {
     // Multisig deployed on Mainnet, Arbitrum, Base, OP,
-    address public constant zuCityTreasury = address(0x0);
+    address public constant zuCityTreasury = address(0xC958dEeAB982FDA21fC8922493d0CEDCD26287C3);
 
+    uint8 public decimals = 18;
     string public name;
     string public symbol;
-    uint8 public decimals = 18;
-    uint256 public totalSupply; // we farm so self.balance != supply
+    uint256 public totalSupply; // WETH change: we farm so self.balance != supply
 
     /// Token to accept for home payments in ZuCity
     IERC20 public reserveToken;
@@ -22,8 +24,8 @@ contract ZuToken is IZuETH {
     event Transfer(address indexed me, address indexed mate, uint256 dubloons);
     
     /* who deposited, how much, where they want yield directed, who recruited mate */
-    event Deposit(address indexed mate, uint256 dubloons, address indexed city, address indexed referrer);
-    event Withdrawal(address indexed me, uint256 dubloons, address indexed referrer);
+    event Deposit(address indexed mate, address indexed receiver, uint256 dubloons, address indexed city, address referrer);
+    event Withdrawal(address indexed me, uint256 dubloons);
     
     event Farm(address indexed market, address indexed reserve, uint256 dubloons);
     event Reserve(address indexed market, address indexed reserve, uint256 dubloons);
@@ -46,7 +48,7 @@ contract ZuToken is IZuETH {
         // naive check if ZuCity multisig is deployed on this chain
         if(getContractSize(zuCityTreasury) == 0) revert UnsupportedChain();
         
-        ReserveData memory pool = aaveMarket.getReserveData(address(_reserveToken));
+        ReserveData memory pool = IAaveMarket(market).getReserveData(address(_reserveToken));
         // Ensure aave market accepts the asset people deposit
         if(pool.aTokenAddress == address(0)) revert InvalidReserveMarket();
 
@@ -60,21 +62,28 @@ contract ZuToken is IZuETH {
         aaveMarket.setUserEMode(1);
     }
 
+
     function deposit(uint256 dubloons) public {
+        _deposit(msg.sender, dubloons, address(this), address(this));
+    }
+
+    function depositAndApprove(address spender, uint256 dubloons) public {
+        _deposit(msg.sender, dubloons, address(this), address(this));
+        approve(spender, dubloons);
+    }
+
+    function _deposit(address receiver, uint256 dubloons, address city, address referrer) public {
         reserveToken.transferFrom(msg.sender, address(this), dubloons);
         farm(reserveToken.balanceOf(address(this)));
         
-        balanceOf[msg.sender] += dubloons;
+        balanceOf[receiver] += dubloons;
         totalSupply += dubloons;
-
-        emit Deposit(msg.sender, dubloons, address(this), address(this));
+        emit Deposit(msg.sender, receiver, dubloons, city, referrer);
     }
 
-    function depositWithPreference(uint256 dubloons, address city, address referrer) public {
-        deposit(dubloons);
-        emit Deposit(msg.sender, dubloons, city, referrer);
+    function depositWithPreference(address to, uint256 dubloons, address city, address referrer) public {
+        _deposit(to, dubloons, city, referrer);
     }
-
 
     function withdraw(uint256 dubloons) public {
         require(balanceOf[msg.sender] >= dubloons);
@@ -141,6 +150,10 @@ contract ZuToken is IZuETH {
         // it is a self-repaying loan that eventually becomes solvent
 
         emit Lend(msg.sender, address(debtToken), mate, dubloons);
+    }
+
+    function underlying() public returns(uint256) {
+        return aToken.balanceOf(address(this));
     }
 
     function getContractSize(address _contract) private view returns (uint256) {
