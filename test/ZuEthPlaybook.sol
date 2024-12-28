@@ -6,7 +6,7 @@ import {StdCheats} from "forge-std/StdCheats.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {console} from "forge-std/console.sol";
 import {AddressSet, LibAddressSet} from "./helpers/AddressSet.sol";
-import {IERC20} from "../src/Interfaces.sol";
+import {IERC20x} from "../src/Interfaces.sol";
 import {ZuETH} from "../src/ZuETH.sol";
 import {ZuEthBaseTest} from "./ZuEthBaseTest.t.sol";
 
@@ -157,6 +157,10 @@ contract Handler is ZuEthBaseTest {
 
     function actors() external view returns (address[] memory) {
         return _actors.addrs;
+    }
+
+    function netDeposits() external view returns (uint256) {
+        return ghost_depositSum + ghost_forcePushSum - ghost_withdrawSum;
     }
 
     function callSummary() external view {

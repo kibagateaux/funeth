@@ -1,0 +1,1 @@
+RUST_LOG=forge=trace,foundry_evm=trace,ethers=trace forge test -vvv

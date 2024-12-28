@@ -41,7 +41,7 @@ contract ZuEthInvariants is ZuEthBaseTest {
 
     function invariant_noETHUnfarmed() public {
         assertEq(0, address(zuETH).balance);
-        assertGe(0, zuETH.underlying());
+        assertGe(zuETH.underlying(), 0);
     }
 
     // The WETH contract's Ether balance should always be
