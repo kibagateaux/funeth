@@ -7,8 +7,8 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {console} from "forge-std/console.sol";
 import {AddressSet, LibAddressSet} from "./helpers/AddressSet.sol";
 import {IERC20x} from "../src/Interfaces.sol";
-import {ZuETH} from "../src/ZuETH.sol";
-import {ZuEthBaseTest} from "./ZuEthBaseTest.t.sol";
+import {nnETH as NetworkNationETH} from "../src/nnETH.sol";
+import {nnEthBaseTest} from "./nnEthBaseTest.t.sol";
 
 
 uint256 constant ETH_SUPPLY = 120_500_000 ether;
@@ -19,7 +19,7 @@ contract ForcePush {
     }
 }
 
-contract Handler is ZuEthBaseTest {
+contract Handler is nnEthBaseTest {
     using LibAddressSet for AddressSet;
 
     uint256 public ghost_depositSum;
@@ -52,8 +52,8 @@ contract Handler is ZuEthBaseTest {
         _;
     }
 
-    constructor(ZuETH _weth, address reserveToken) {
-        zuETH = _weth;
+    constructor(NetworkNationETH _weth, address reserveToken) {
+        nnETH = _weth;
         token = reserveToken;
         deal(address(reserveToken), address(this), ETH_SUPPLY);
     }
@@ -64,17 +64,17 @@ contract Handler is ZuEthBaseTest {
 
         vm.prank(currentActor);
         WETH.deposit{value: amount}();
-        zuETH.deposit(amount);
+        nnETH.deposit(amount);
 
         ghost_depositSum += amount;
     }
 
     function withdraw(uint256 actorSeed, uint256 amount) public useActor(actorSeed) countCall("withdraw") {
-        amount = bound(amount, 0, zuETH.balanceOf(currentActor));
+        amount = bound(amount, 0, nnETH.balanceOf(currentActor));
         if (amount == 0) ghost_zeroWithdrawals++;
 
         vm.startPrank(currentActor);
-        zuETH.withdraw(amount);
+        nnETH.withdraw(amount);
         _pay(address(this), amount);
         vm.stopPrank();
 
@@ -89,7 +89,7 @@ contract Handler is ZuEthBaseTest {
         address spender = _actors.rand(spenderSeed);
 
         vm.prank(currentActor);
-        zuETH.approve(spender, amount);
+        nnETH.approve(spender, amount);
     }
 
     function transfer(uint256 actorSeed, uint256 toSeed, uint256 amount)
@@ -99,11 +99,11 @@ contract Handler is ZuEthBaseTest {
     {
         address to = _actors.rand(toSeed);
 
-        amount = bound(amount, 0, zuETH.balanceOf(currentActor));
+        amount = bound(amount, 0, nnETH.balanceOf(currentActor));
         if (amount == 0) ghost_zeroTransfers++;
 
         vm.prank(currentActor);
-        zuETH.transfer(to, amount);
+        nnETH.transfer(to, amount);
     }
 
     function transferFrom(uint256 actorSeed, uint256 fromSeed, uint256 toSeed, bool _approve, uint256 amount)
@@ -114,18 +114,18 @@ contract Handler is ZuEthBaseTest {
         address from = _actors.rand(fromSeed);
         address to = _actors.rand(toSeed);
 
-        amount = bound(amount, 0, zuETH.balanceOf(from));
+        amount = bound(amount, 0, nnETH.balanceOf(from));
 
         if (_approve) {
             vm.prank(from);
-            zuETH.approve(currentActor, amount);
+            nnETH.approve(currentActor, amount);
         } else {
-            amount = bound(amount, 0, zuETH.allowance(from, currentActor));
+            amount = bound(amount, 0, nnETH.allowance(from, currentActor));
         }
         if (amount == 0) ghost_zeroTransferFroms++;
 
         vm.prank(currentActor);
-        zuETH.transferFrom(from, to, amount);
+        nnETH.transferFrom(from, to, amount);
     }
 
     function sendFallback(uint256 amount) public createActor countCall("sendFallback") {
@@ -133,14 +133,14 @@ contract Handler is ZuEthBaseTest {
         _pay(currentActor, amount);
 
         vm.prank(currentActor);
-        _pay(address(zuETH), amount);
+        _pay(address(nnETH), amount);
 
         ghost_depositSum += amount;
     }
 
     // function forcePush(uint256 amount) public countCall("forcePush") {
     //     amount = bound(amount, 0, address(this).balance);
-    //     new ForcePush{ value: amount }(address(zuETH));
+    //     new ForcePush{ value: amount }(address(nnETH));
     //     ghost_forcePushSum += amount;
     // }
 

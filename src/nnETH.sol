@@ -1,24 +1,23 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/console.sol";
-import {IZuETH, IERC20x, IAaveMarket, ReserveData} from "./Interfaces.sol";
+import {InnETH, IERC20x, IAaveMarket, ReserveData} from "./Interfaces.sol";
 
-contract ZuETH is IZuETH {
+contract nnETH is InnETH {
     // Multisig deployed on Mainnet, Arbitrum, Base, OP,
     address public constant ZU_CITY_TREASURY = address(0xC958dEeAB982FDA21fC8922493d0CEDCD26287C3);
     uint64 public constant MIN_DEPOSIT = 100_000_000; // to prevent aave math from causing reverts on small amounts from rounding decimal diffs. $100 USDC or 1e-9 ETH
     // TODO figure out lowest amount where aave tests dont fail
     // uint256 public constant MIN_DEPOSIT = 100; // to prevent aave math from causing reverts on small amounts. $100 USDC or 1e-9 ETH
     
-    /// @notice min health factor for user to redeem to prevent malicious liquidations. 2 = Redeems until debt = 50% of zuETH TVL
+    /// @notice min health factor for user to redeem to prevent malicious liquidations. 2 = Redeems until debt = 50% of nnETH TVL
     uint8 public constant MIN_REDEEM_FACTOR = 2;
-    /// @notice min health factor for treasury to pull excess interest. 8 = ~12% of total zuETH TVL can be delegated
+    /// @notice min health factor for treasury to pull excess interest. 8 = ~12% of total nnETH TVL can be delegated
     uint8 public constant MIN_RESERVE_FACTOR = 8;
     /// @notice used to convert AAVE LTV to HF calc
     uint16 public constant BPS_COEFFICIENT = 1e4;
 
-
-    /// @notice ZuETH token decimals. same as reserveToken decimals
+    /// @notice nnETH token decimals. same as reserveToken decimals
     uint8 public decimals;
     /// @notice decimals for token we borrow for use in HF calculations
     uint8 public debtTokenDecimals;
@@ -31,26 +30,28 @@ contract ZuETH is IZuETH {
     string public symbol;
 
     uint256 internal reserveVsATokenDecimalOffset;
-    /// @notice Token to accept for home payments in ZuCity
+    /// @notice Token to accept for home payments in nnCity
     IERC20x public reserveToken;
     /// @notice Aave Pool for lending + borrowing
     IAaveMarket public aaveMarket;
-    /// @notice Aave yield bearing token for reserveToken. Provides total ETH balance of ZuETH contract.
+    /// @notice Aave yield bearing token for reserveToken. Provides total ETH balance of nnETH contract.
     IERC20x public aToken;
-    /// @notice Aave variable debt token that we let popups borrow against ZuCity collateral
+    /// @notice Aave variable debt token that we let popups borrow against nnCity collateral
     IERC20x public debtToken;
 
     event Approval(address indexed me, address indexed mate, uint256 dubloons);
     event Transfer(address indexed me, address indexed mate, uint256 dubloons);
-    
-    /* who deposited, how much, where they want yield directed, who recruited mate */
-    event Deposit(address indexed mate, address indexed receiver, uint256 dubloons, address indexed city, address referrer);
-    event Withdrawal(address indexed me, uint256 dubloons);
-    
-    event Farm(address indexed market, address indexed reserve, uint256 dubloons);
-    event PullReserves(address indexed treasurer, uint256 dubloons);
-    event Lend(address indexed treasurer, address indexed debtToken, address indexed popup, uint256 dubloons);
 
+    ///@notice who deposited, how much, where they want yield directed, who recruited mate
+    event Deposit(address indexed mate, address indexed receiver, uint256 dubloons, address indexed city, address referrer);
+    ///@notice who withdrew, how much
+    event Withdrawal(address indexed me, uint256 dubloons);
+    ///@notice where we are farming, what token, how much was deposited
+    event Farm(address indexed market, address indexed reserve, uint256 dubloons);
+    ///@notice where yield was sent to, how much
+    event PullReserves(address indexed treasurer, uint256 dubloons);
+    ///@notice who underwrote loan, what token is borrowed, who loan was given to, amount of tokens lent
+    event Lend(address indexed treasurer, address indexed debtToken, address indexed popup, uint256 dubloons);
 
     error AlreadyInitialized();
     error UnsupportedChain();
@@ -58,7 +59,7 @@ contract ZuETH is IZuETH {
     error InvalidTokens();
     error BelowMinDeposit();
     error NotEthReserve();
-    error NotZuCity();
+    error NotnnCity();
     error LoanFailed();
     error InvalidTreasuryOperation();
     error InsufficientReserves();
@@ -69,10 +70,10 @@ contract ZuETH is IZuETH {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
-    // TODO easier to enfore loans within the contract e.g. ZuETH.borrow()instead of delegated credit
+    // TODO easier to enfore loans within the contract e.g. nnETH.borrow()instead of delegated credit
     mapping(address => uint256) public credited; // TODO? make City struct with creditedUSDC + delegatedETH
 
-    // TODO if delegated credit doesnt work just track everything in this contract. mazzu
+    // TODO if delegated credit doesnt work just track everything in this contract. maznn
     // struct Loan {
     //     uint256 totalCredit; // total credit extended to city. revolving.
     //     uint256 currentDebt; // includes principal + all interest accrued up until lastLiquidityIndex
@@ -81,7 +82,7 @@ contract ZuETH is IZuETH {
     // mapping(address => Loan) public cityLoans;
     //     function borrow(address city, uint256 amount) public {
     //     if(cityLoans[city].totalCredit == 0) revert NoCredit();
-    //     if(msg.sender != city) revert NotZuCity();
+    //     if(msg.sender != city) revert NotnnCity();
     //     (,,,,,,,, uint256 liquidityIndex, uint256 variableBorrowIndex,,,,, , , , ) = IAaveDataProvider(aaveDataProvider).getReserveData(address(debtToken));
 
     //     cityLoans[city].currentDebt += amount;
@@ -108,7 +109,7 @@ contract ZuETH is IZuETH {
     function initialize(address _reserveToken, address market, address _debtToken, uint8 eMode, string memory _name, string memory _sym) public {
         if(address(reserveToken) != address(0)) revert AlreadyInitialized();
         
-        // naive check if ZuCity governance is deployed on this chain
+        // naive check if nnCity governance is deployed on this chain
         if(getContractSize(ZU_CITY_TREASURY) == 0) revert UnsupportedChain();
         
         ReserveData memory pool = IAaveMarket(market).getReserveData(address(_reserveToken));
@@ -208,7 +209,7 @@ contract ZuETH is IZuETH {
     }
 
     function pullReserves(uint256 dubloons) public {
-        _assertZuCity();
+        _assertnnCity();
 
         if(getYieldEarned() < dubloons) revert InsufficientReserves();
 
@@ -225,14 +226,14 @@ contract ZuETH is IZuETH {
 
 
     /**
-     * @notice Allow projects to borrow against ZuCity collateral with Aave credit delegation.
+     * @notice Allow projects to borrow against nnCity collateral with Aave credit delegation.
         Technically this will almost always make us frational reserve. 
         But it is a self-repaying loan that eventually becomes solvent
-     * @param city - zuzalu popup city to receive loan
+     * @param city - nnzalu popup city to receive loan
      * @param dubloons - Should be Aave market denominated. Usually USD to 10 decimals
     */
     function lend(address city, uint256 dubloons) public {
-        _assertZuCity();
+        _assertnnCity();
 
         uint256 currentCredit = credited[city];
         credited[city] = dubloons;
@@ -248,14 +249,14 @@ contract ZuETH is IZuETH {
         // throws error if u set collateral with 0 deposits so cant do on initialize.
         aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);
 
-        // allow popup to borrow against zucity collateral
+        // allow popup to borrow against nncity collateral
         debtToken.approveDelegation(city, dubloons);
 
         emit Lend(msg.sender, address(debtToken), city, dubloons);
     }
     
-    function _assertZuCity() internal view {
-        if(msg.sender != ZU_CITY_TREASURY) revert NotZuCity();
+    function _assertnnCity() internal view {
+        if(msg.sender != ZU_CITY_TREASURY) revert NotnnCity();
     }
 
     function _assertFinancialHealth() internal view {

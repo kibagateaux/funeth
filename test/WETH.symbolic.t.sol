@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
-// https://github.com/horsefacts/zuETH-invariant-testing/blob/main/test/WETH9.symbolic.t.sol
+// https://github.com/horsefacts/nnETH-invariant-testing/blob/main/test/WETH9.symbolic.t.sol
 
 pragma solidity ^0.8.26;
 
 import {SymTest} from "halmos-cheatcodes/SymTest.sol";
 import {Test} from "forge-std/Test.sol";
 
-import {ZuETH} from "../src/ZuETH.sol";
-import {ZuEthBaseTest} from "./ZuEthBaseTest.t.sol";
+import {nnETH as NetworkNationETH} from "../src/nnETH.sol";
+import {nnEthBaseTest} from "./nnEthBaseTest.t.sol";
 
-contract WETHSymTest is SymTest, ZuEthBaseTest {
+contract WETHSymTest is SymTest, nnEthBaseTest {
 
     function test_globalInvariants(bytes4 selector, address caller, uint256 val) public {
         // Execute an arbitrary tx
@@ -18,21 +18,21 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
         // if a valid selector, then call with data
         emit log_bytes(call);
         if(call.length != 0) { 
-            (bool success,) = address(zuETH).call(call);
+            (bool success,) = address(nnETH).call(call);
             vm.assume(success); // ignore reverting cases
         }
 
         // Record post-state
-        assert(zuETH.totalSupply() <= zuETH.underlying());
+        assert(nnETH.totalSupply() <= nnETH.underlying());
     }
 
     // @dev deposit() increases the caller's balance by exactly msg.value;
     function test_deposit_depositorBalanceUpdate(address guy, uint256 wad) public {
-        uint256 balanceBefore = zuETH.balanceOf(guy);
+        uint256 balanceBefore = nnETH.balanceOf(guy);
 
-        wad = _depositZuEth(guy, wad, true);
+        wad = _depositnnEth(guy, wad, true);
 
-        uint256 balanceAfter = zuETH.balanceOf(guy);
+        uint256 balanceAfter = nnETH.balanceOf(guy);
 
         assert(balanceAfter == balanceBefore + wad);
     }
@@ -40,24 +40,24 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     // @dev deposit() does not change the balance of any address besides the caller.
     function test_deposit_balancePreservation(address guy, address gal, uint256 wad) public {
         vm.assume(guy != gal);
-        uint256 balanceBefore = zuETH.balanceOf(gal);
+        uint256 balanceBefore = nnETH.balanceOf(gal);
     
-        wad = _depositZuEth(guy, wad, true);
+        wad = _depositnnEth(guy, wad, true);
 
-        uint256 balanceAfter = zuETH.balanceOf(gal);
+        uint256 balanceAfter = nnETH.balanceOf(gal);
 
         assert(balanceAfter == balanceBefore);
     }
 
     // @dev withdraw() decreases the caller's balance by exactly msg.value;
     function test_withdraw_withdrawerBalanceUpdate(address guy, uint256 wad) public {
-        wad = _depositZuEth(guy, wad, true);
+        wad = _depositnnEth(guy, wad, true);
 
-        uint256 balanceBefore = zuETH.balanceOf(guy);
+        uint256 balanceBefore = nnETH.balanceOf(guy);
 
-        _withdrawZuEth(guy, wad);
+        _withdrawnnEth(guy, wad);
 
-        uint256 balanceAfter = zuETH.balanceOf(guy);
+        uint256 balanceAfter = nnETH.balanceOf(guy);
 
         assert(balanceAfter == balanceBefore - wad);
     }
@@ -65,24 +65,24 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     // @dev withdraw() does not change the balance of any address besides the caller.
     function test_withdraw_balancePreservation(address guy, address gal, uint256 wad) public {
         vm.assume(guy != gal);
-        wad = _depositZuEth(guy, wad, true);
+        wad = _depositnnEth(guy, wad, true);
 
-        uint256 balanceBefore = zuETH.balanceOf(gal);
+        uint256 balanceBefore = nnETH.balanceOf(gal);
 
-        _withdrawZuEth(guy, wad);
+        _withdrawnnEth(guy, wad);
 
-        uint256 balanceAfter = zuETH.balanceOf(gal);
+        uint256 balanceAfter = nnETH.balanceOf(gal);
 
         assert(balanceAfter == balanceBefore);
     }
 
     // @dev approve(dst, wad) sets dst allowance to wad.
     function test_approve_allowanceUpdate(address guy, address dst, uint256 wad) public {
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.prank(guy);
-        zuETH.approve(dst, wad);
+        nnETH.approve(dst, wad);
 
-        uint256 allowanceAfter = zuETH.allowance(guy, dst);
+        uint256 allowanceAfter = nnETH.allowance(guy, dst);
 
         assert(allowanceAfter == wad);
     }
@@ -91,19 +91,19 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     function test_approve_allowancePreservation(address guy, address dst1, uint256 wad, address gal, address dst2)
         public
     {
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(guy != gal);
 
-        uint256 allowanceBefore = zuETH.allowance(gal, dst2);
+        uint256 allowanceBefore = nnETH.allowance(gal, dst2);
 
         vm.prank(guy);
-        zuETH.approve(dst1, wad);
+        nnETH.approve(dst1, wad);
 
-        assert(zuETH.allowance(gal, dst2) == allowanceBefore); // original unnaffected by other user/dst
+        assert(nnETH.allowance(gal, dst2) == allowanceBefore); // original unnaffected by other user/dst
         
         vm.prank(guy);
-        zuETH.approve(dst2, wad); // to same dst unaffected too
-        assert(zuETH.allowance(gal, dst2) == allowanceBefore);
+        nnETH.approve(dst2, wad); // to same dst unaffected too
+        assert(nnETH.allowance(gal, dst2) == allowanceBefore);
     }
 
     // @dev transfer(dst, wad):
@@ -112,17 +112,17 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     function test_transfer_balanceUpdate(address guy, address dst, uint256 wad) public {
         vm.assume(guy != dst);
         // vm.deal(guy, wad);
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
-        _depositZuEth(guy, wad, true);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        _depositnnEth(guy, wad, true);
 
-        uint256 guyBalanceBefore = zuETH.balanceOf(guy);
-        uint256 dstBalanceBefore = zuETH.balanceOf(dst);
+        uint256 guyBalanceBefore = nnETH.balanceOf(guy);
+        uint256 dstBalanceBefore = nnETH.balanceOf(dst);
 
         vm.prank(guy);
-        zuETH.transfer(dst, wad);
+        nnETH.transfer(dst, wad);
 
-        uint256 guyBalanceAfter = zuETH.balanceOf(guy);
-        uint256 dstBalanceAfter = zuETH.balanceOf(dst);
+        uint256 guyBalanceAfter = nnETH.balanceOf(guy);
+        uint256 dstBalanceAfter = nnETH.balanceOf(dst);
 
         assert(guyBalanceAfter == guyBalanceBefore - wad);
         assert(dstBalanceAfter == dstBalanceBefore + wad);
@@ -133,17 +133,17 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     function test_transfer_balancePreservation(address guy, address dst, uint256 wad, address gal) public {
         vm.assume(guy != dst);
         vm.assume(guy != gal);
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(dst != gal);
         // vm.deal(guy, wad);
-        _depositZuEth(guy, wad, true);
+        _depositnnEth(guy, wad, true);
 
-        uint256 galBalanceBefore = zuETH.balanceOf(gal);
+        uint256 galBalanceBefore = nnETH.balanceOf(gal);
 
         vm.prank(guy);
-        zuETH.transfer(dst, wad);
+        nnETH.transfer(dst, wad);
 
-        uint256 galBalanceAfter = zuETH.balanceOf(gal);
+        uint256 galBalanceAfter = nnETH.balanceOf(gal);
 
         assert(galBalanceAfter == galBalanceBefore);
     }
@@ -153,23 +153,23 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     //      - increases dst's balance by exactly wad.
     function test_transferFrom_balanceUpdate(address guy, address src, address dst, uint256 wad, uint256 approval) public {
         vm.assume(src != dst);
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         // vm.deal(src, wad);
         vm.assume(approval > wad);
-        deal(address(zuETH), src, wad);
+        deal(address(nnETH), src, wad);
         
-        _depositZuEth(guy, wad, true);
+        _depositnnEth(guy, wad, true);
         vm.prank(src);
-        zuETH.approve(guy, approval);
+        nnETH.approve(guy, approval);
 
-        uint256 srcBalanceBefore = zuETH.balanceOf(src);
-        uint256 dstBalanceBefore = zuETH.balanceOf(dst);
+        uint256 srcBalanceBefore = nnETH.balanceOf(src);
+        uint256 dstBalanceBefore = nnETH.balanceOf(dst);
 
         vm.prank(guy);
-        zuETH.transferFrom(src, dst, wad);
+        nnETH.transferFrom(src, dst, wad);
 
-        uint256 srcBalanceAfter = zuETH.balanceOf(src);
-        uint256 dstBalanceAfter = zuETH.balanceOf(dst);
+        uint256 srcBalanceAfter = nnETH.balanceOf(src);
+        uint256 dstBalanceAfter = nnETH.balanceOf(dst);
 
         assert(srcBalanceAfter == srcBalanceBefore - wad);
         assert(dstBalanceAfter == dstBalanceBefore + wad);
@@ -180,49 +180,49 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     function test_transferFrom_balancePreservation(address guy, address src, address dst, uint256 wad, uint256 approval, address gal)
         public
     {
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(approval > wad);
         vm.assume(guy != dst);
         vm.assume(guy != gal);
         vm.assume(dst != gal);
         vm.assume(src != gal);
 
-        _depositZuEth(src, wad, true);
+        _depositnnEth(src, wad, true);
         vm.prank(src);
-        zuETH.approve(guy, approval);
+        nnETH.approve(guy, approval);
 
-        uint256 srcBalanceBefore = zuETH.balanceOf(src);
-        uint256 galBalanceBefore = zuETH.balanceOf(gal);
+        uint256 srcBalanceBefore = nnETH.balanceOf(src);
+        uint256 galBalanceBefore = nnETH.balanceOf(gal);
 
         vm.prank(guy);
-        zuETH.transferFrom(src, dst, wad);
+        nnETH.transferFrom(src, dst, wad);
 
-        assert(zuETH.balanceOf(gal) == galBalanceBefore);
-        assert(zuETH.balanceOf(src) == srcBalanceBefore - wad);
+        assert(nnETH.balanceOf(gal) == galBalanceBefore);
+        assert(nnETH.balanceOf(src) == srcBalanceBefore - wad);
     }
 
     // @dev transferFrom(src, dst, wad):
     //      - decreases msg.sender's allowance by exactly wad.
     function test_transferFrom_allowanceUpdate(address guy, address src, address dst, uint256 wad, uint256 approval) public {
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(guy != src);
         vm.assume(src != dst);
         vm.assume(approval > wad);
         vm.assume(approval != type(uint256).max);
 
-        _depositZuEth(src, wad, true);
+        _depositnnEth(src, wad, true);
         vm.prank(src);
-        zuETH.approve(guy, approval);
+        nnETH.approve(guy, approval);
 
-        uint256 guyAllowanceBefore = zuETH.allowance(src, guy);
+        uint256 guyAllowanceBefore = nnETH.allowance(src, guy);
         emit log_named_uint("init apporval", approval);
         emit log_named_uint("guy apporval", guyAllowanceBefore);
 
         emit log_named_uint("amnt", wad);
         vm.prank(guy);
-        zuETH.transferFrom(src, dst, wad);
+        nnETH.transferFrom(src, dst, wad);
 
-        uint256 guyAllowanceAfter = zuETH.allowance(src, guy);
+        uint256 guyAllowanceAfter = nnETH.allowance(src, guy);
 
         assert(guyAllowanceAfter == guyAllowanceBefore - wad);
     }
@@ -232,22 +232,22 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     function test_transferFrom_allowanceUpdate_callerIsSrc(address guy, address src, address dst, uint256 wad, uint256 approval)
         public
     {
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(guy != src);
         vm.assume(src != dst);
         vm.assume(approval > wad);
         // vm.deal(guy, wad);
-        _depositZuEth(guy, wad, true);
+        _depositnnEth(guy, wad, true);
         vm.prank(src);
-        zuETH.approve(guy, approval);
+        nnETH.approve(guy, approval);
 
-        uint256 guyAllowanceBefore = zuETH.allowance(guy, guy);
+        uint256 guyAllowanceBefore = nnETH.allowance(guy, guy);
         vm.assume(guyAllowanceBefore != type(uint256).max);
 
         vm.prank(guy);
-        zuETH.transferFrom(guy, dst, wad);
+        nnETH.transferFrom(guy, dst, wad);
 
-        uint256 guyAllowanceAfter = zuETH.allowance(guy, guy);
+        uint256 guyAllowanceAfter = nnETH.allowance(guy, guy);
 
         assert(guyAllowanceAfter == guyAllowanceBefore);
     }
@@ -257,22 +257,22 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
     function test_transferFrom_allowanceUpdate_maxAllowance(address guy, address src, address dst, uint256 wad)
         public
     {
-        wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(src != dst);
         // vm.deal(src, wad);
-        deal(address(zuETH), src, wad);
+        deal(address(nnETH), src, wad);
         
-        _depositZuEth(guy, wad, true);
+        _depositnnEth(guy, wad, true);
         vm.startPrank(src);
-        zuETH.approve(guy, type(uint256).max);
+        nnETH.approve(guy, type(uint256).max);
         vm.stopPrank();
 
-        uint256 guyAllowanceBefore = zuETH.allowance(src, guy);
+        uint256 guyAllowanceBefore = nnETH.allowance(src, guy);
 
         vm.prank(guy);
-        zuETH.transferFrom(src, dst, wad);
+        nnETH.transferFrom(src, dst, wad);
 
-        uint256 guyAllowanceAfter = zuETH.allowance(src, guy);
+        uint256 guyAllowanceAfter = nnETH.allowance(src, guy);
 
         assert(guyAllowanceAfter == guyAllowanceBefore);
         assert(guyAllowanceAfter == type(uint256).max);
@@ -289,15 +289,15 @@ contract WETHSymTest is SymTest, ZuEthBaseTest {
         // uint256 wad = uint256(vm.random());
 
         // Generate calldata based on the function selector
-        // wad = bound(wad, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        // wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         bytes memory args;
-        if (selector == zuETH.withdraw.selector) {
+        if (selector == NetworkNationETH.withdraw.selector) {
             args = abi.encode(wad);
-        } else if (selector == zuETH.approve.selector) {
+        } else if (selector == NetworkNationETH.approve.selector) {
             args = abi.encode(guy, wad);
-        } else if (selector == zuETH.transfer.selector) {
+        } else if (selector == NetworkNationETH.transfer.selector) {
             args = abi.encode(dst, wad);
-        } else if (selector == zuETH.transferFrom.selector) {
+        } else if (selector == NetworkNationETH.transferFrom.selector) {
             args = abi.encode(src, dst, wad);
         } else {
             // For functions where all parameters are static (not dynamic arrays or bytes),

@@ -2,11 +2,11 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 
-import {ZuETH} from "../src/ZuETH.sol";
-import {IERC20x, IAaveMarket, IZuETH} from "../src/Interfaces.sol";
+import {nnETH as NetworkNationETH} from "../src/nnETH.sol";
+import {IERC20x, IAaveMarket, InnETH} from "../src/Interfaces.sol";
 
-contract ZuEthBaseTest is Test {
-    ZuETH public zuETH;
+contract nnEthBaseTest is Test {
+    NetworkNationETH public nnETH;
 
     // Base asset/protocol addresses
     IERC20x public WETH = IERC20x(0x4200000000000000000000000000000000000006);
@@ -29,26 +29,26 @@ contract ZuEthBaseTest is Test {
 
     function setUp() virtual public {
         baseFork = vm.createSelectFork(vm.rpcUrl('base'), 23_502_225);
-        zuETH = new ZuETH();
+        nnETH = new NetworkNationETH();
 
         // 1 = ETHLIKE. Aave on Base does not have stablecoin eMode, only ETH.
-        zuETH.initialize(address(WETH), address(aave), address(debtToken), aaveEMode, "ZuCity Ethereum", "zuETH");
+        nnETH.initialize(address(WETH), address(aave), address(debtToken), aaveEMode, "nnCity Ethereum", "nnETH");
     }
 
-    function _depositZuEth(address user, uint256 amount) internal returns (uint256 deposited) {
-        deposited = bound(amount, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT); // prevent min/max supply reverts on Aave
+    function _depositnnEth(address user, uint256 amount) internal returns (uint256 deposited) {
+        deposited = bound(amount, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT); // prevent min/max supply reverts on Aave
 
         vm.startPrank(user);
-        zuETH.reserveToken().approve(address(zuETH), deposited);
-        zuETH.deposit(deposited);
+        nnETH.reserveToken().approve(address(nnETH), deposited);
+        nnETH.deposit(deposited);
         vm.stopPrank();
     }
 
-    function _depositZuEth(address user, uint256 amount, bool mint) internal returns (uint256 deposited) {
-        deposited = bound(amount, zuETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT); // prevent min/max supply reverts on Aave
+    function _depositnnEth(address user, uint256 amount, bool mint) internal returns (uint256 deposited) {
+        deposited = bound(amount, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT); // prevent min/max supply reverts on Aave
 
-        if(mint) deal(address(zuETH.reserveToken()), user, deposited);
-        return _depositZuEth(user, deposited);
+        if(mint) deal(address(nnETH.reserveToken()), user, deposited);
+        return _depositnnEth(user, deposited);
     }
 
     function _lend(address city, uint256 amount) internal {
@@ -56,23 +56,23 @@ contract ZuEthBaseTest is Test {
         // probs attack prevention method on aave protocol so move 1 block ahead to increase balance from interest
         vm.warp(block.timestamp + 1 weeks);
 
-        vm.prank(zuETH.ZU_CITY_TREASURY());
-        zuETH.lend(city, amount);
+        vm.prank(nnETH.ZU_CITY_TREASURY());
+        nnETH.lend(city, amount);
     }
 
-    function _withdrawZuEth(address user, uint256 amount) internal {
+    function _withdrawnnEth(address user, uint256 amount) internal {
         vm.assume(user != address(debtToken));
-        vm.assume(user != address(zuETH.aToken()));
+        vm.assume(user != address(nnETH.aToken()));
         // when we deposit -> withdraw immediately we have 1 wei less balance than we deposit
         // probs attack prevention method on aave protocol so move 1 block ahead to increase balance from interest
         
         vm.warp(block.timestamp + 1 days);
         vm.prank(user);
-        zuETH.withdraw(amount);
+        nnETH.withdraw(amount);
     }
 
     
-    function _borrowable(uint256 zuethSupply) internal returns (uint256 aaveTotalCredit, uint256 zuEthCreditLimit){
+    function _borrowable(uint256 nnethSupply) internal returns (uint256 aaveTotalCredit, uint256 nnEthCreditLimit){
         uint256 ltvConfig = 8000; // TODO pull from Aave.reserveConfig or userAcccountData
         
         //mainnet oracle. Base doesnt work
@@ -84,9 +84,9 @@ contract ZuEthBaseTest is Test {
         }
         emit log_named_uint("ETH price", price);
         // TODO add ETH price
-        aaveTotalCredit = (zuethSupply * ltvConfig * price) / 1e22; // total credit / token18 vs aave8 decimal diff (10) / price decimals (8) / bps decimals (4)
-        // aaveTotalCredit = (zuethSupply * ltvConfig) / 1e10; // total credit / token decimal diff (10) / price decimals (10)
-        zuEthCreditLimit = (aaveTotalCredit ) / zuETH.MIN_RESERVE_FACTOR() - 1; // just under limit
+        aaveTotalCredit = (nnethSupply * ltvConfig * price) / 1e22; // total credit / token18 vs aave8 decimal diff (10) / price decimals (8) / bps decimals (4)
+        // aaveTotalCredit = (nnethSupply * ltvConfig) / 1e10; // total credit / token decimal diff (10) / price decimals (10)
+        nnEthCreditLimit = (aaveTotalCredit ) / nnETH.MIN_RESERVE_FACTOR() - 1; // just under limit
     }
 
 

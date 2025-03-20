@@ -8,15 +8,15 @@ pragma solidity ^0.8.26;
 
 
 // is NFT contract
-// allows any zuToken to be staked
-// has list of valid zuTokens
+// allows any nnToken to be staked
+// has list of valid nnTokens
 // list of properties 
 // property states = delisted, listed, reserved, purchasing, bought
 // each property is an NFT
 
 // stake()
 // multiple people can stake to the same property
-// zuTokens locked until reserved
+// nnTokens locked until reserved
 // if reserved and buyer != staker. can withdraw
 // represents total amount you want to invest into property including renovations, furnishing, Akiya Collective art commisions, etc.
 
@@ -27,7 +27,7 @@ pragma solidity ^0.8.26;
 
 // initBuy(uint256 lot)
 
-// addZuToken(address zuToken)
-// assert zuToken.ZU_CITY_TREASURY = zuCityTreasury (not a malicious tx, could be spoofed i guess)
-// assert msg.sender = zuCityTreasury
-// zuToken.reserveToken
+// addnnToken(address nnToken)
+// assert nnToken.ZU_CITY_TREASURY = nnCityTreasury (not a malicious tx, could be spoofed i guess)
+// assert msg.sender = nnCityTreasury
+// nnToken.reserveToken
