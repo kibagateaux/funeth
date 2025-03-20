@@ -16,4 +16,4 @@ pragma solidity ^0.8.26;
 
 // add zuToken
 // - valid chainlink oracle
-// - zuToken.zuCityTreasury = zuCityTreasury
+// - zuToken.ZU_CITY_TREASURY = zuCityTreasury

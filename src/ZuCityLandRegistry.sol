@@ -28,6 +28,6 @@ pragma solidity ^0.8.26;
 // initBuy(uint256 lot)
 
 // addZuToken(address zuToken)
-// assert zuToken.zuCityTreasury = zuCityTreasury (not a malicious tx, could be spoofed i guess)
+// assert zuToken.ZU_CITY_TREASURY = zuCityTreasury (not a malicious tx, could be spoofed i guess)
 // assert msg.sender = zuCityTreasury
 // zuToken.reserveToken

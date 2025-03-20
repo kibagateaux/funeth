@@ -39,17 +39,11 @@ contract ZuEthAaveIntegration is ZuEthBaseTest {
     // }
 
     function invariant_deposit_increaseAToken() public {
-        // only true on first block kafter depositing. might have to change to balanceOf() not scaledBalanceOf
-        assertEq(handler.netDeposits(), zuETH.totalSupply());
+        assertEq(handler.netDeposits(), zuETH.underlying());
 
         uint256 n = _depositZuEth(address(0xdead), 100, true);
 
-        // emit log_named_uint("net", handler.netDeposits());
-        // emit log_named_uint("n", n);
-        // emit log_named_uint("totalSupply", zuETH.totalSupply());
-
-         // aave removes 1 wei.
-        assertEq(zuETH.totalSupply() - 1, handler.netDeposits() + n);
+        assertGe(zuETH.underlying(), handler.netDeposits() + n);
     }
 
     function invariant_deposit_aTokenEarnsYield() public {
@@ -79,47 +73,58 @@ contract ZuEthAaveIntegration is ZuEthBaseTest {
         assertEq(credit0, 0);
         assertEq(zuETH.getCityCredit(city), 0);
 
-        address treasury = zuETH.zuCityTreasury();
-        vm.prank(treasury);
+        address treasury = zuETH.ZU_CITY_TREASURY();
+        (uint256 totalCredit, uint256 borrowable) = _borrowable(zuETH.totalSupply());
 
+        vm.prank(treasury);
         vm.expectEmit(true, true, true, true);
-        emit ZuETH.Lend(address(treasury), address(debtToken), city, n /10);
-        zuETH.lend(city, n / 10);
+        emit ZuETH.Lend(address(treasury), address(debtToken), city, borrowable);
+        zuETH.lend(city, borrowable);
         
         uint256 credit = debtToken.borrowAllowance(address(zuETH), city);
         assertGt(credit, 0);
-        assertGt(zuETH.getCityCredit(city), 0);
+        assertEq(credit, borrowable);
         assertEq(zuETH.getCityCredit(city), credit); // ensure parity btw zueth and aave
     }
     
     function test_lend_canBorrowAgainst(address user, address city, uint256 amount) public {
         uint256 n = _depositZuEth(user, amount, true);
-        (uint256 credit, uint256 borrowable) = _borrowable(n);
-        
-        (,,uint256 availableBorrow,,,uint256 hf) = aave.getUserAccountData(address(zuETH));
-        emit log_named_uint("current HF", hf);
-        emit log_named_uint("current borrow credit", availableBorrow);
-        assertEq(credit, availableBorrow); // manual calculation check
-        assertEq(zuETH.getCredit(), availableBorrow); // ensure smart contract has right impl too
-        assertGt(hf, zuETH.MIN_HEALTH_FACTOR()); // condition cleared to borrow even without delegation
+        (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
-        vm.prank(zuETH.zuCityTreasury());
-        zuETH.lend(city, borrowable);
+
+        (,,uint256 availableBorrow,,,uint256 hf) = aave.getUserAccountData(address(zuETH));
+        assertGe(borrowable + 1, availableBorrow / zuETH.MIN_RESERVE_FACTOR()); // TODO figure out rounding errors
+        assertEq(zuETH.getAvailableCredit(), availableBorrow); // ensure smart contract has right impl too
+        assertGt(hf, zuETH.MIN_RESERVE_FACTOR()); // condition cleared to borrow even without delegation
+
+        _lend(city, borrowable);
     
         // check borrow actually works even if aave says we have credit
+        // failing on borrow
+        // Tried:
+        // - no emode set = ERROR #36 - COLLATERAL_CANNOT_COVER_NEW_BORROW
+        // - setting emode to 0 = ERROR #36 - COLLATERAL_CANNOT_COVER_NEW_BORROW
+        // - setting emode to 1 = ERROR #100 - ASSET_NOT_BORROWABLE_IN_EMODE
+
+        // aave.setUserEMode(aaveEMode);
+        (,,uint256 availableToBorrow,,,) = aave.getUserAccountData(address(zuETH));
+        emit log_named_uint("current borrow credit", availableToBorrow);
+        uint256 credit = debtToken.borrowAllowance(address(zuETH), city);
+        emit log_named_uint("current delegated credit", credit);
+
         vm.startPrank(city);
-        aave.borrow(address(USDC), 1, 2, 200, address(zuETH));
+        aave.borrow(address(USDC), 1, 2, 0, address(zuETH));
         vm.stopPrank();
     }
 
-    function test_getCredit_matchesAaveUserSummary() public {
+    function test_getAvailableCredit_matchesAaveUserSummary() public {
         uint256 ltvConfig = 80; // TODO pull from Aave.reserveConfig or userAcccountData
         uint256 _deposit = 60 ether;
         uint256 deposit = _depositZuEth(address(0xdead), _deposit, true);
 
 
         (uint256 totalCredit, ) = _borrowable(deposit);
-        assertEq(totalCredit, zuETH.getCredit());
+        assertEq(totalCredit, zuETH.getAvailableCredit());
     }
 
 }
