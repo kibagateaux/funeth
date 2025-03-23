@@ -139,8 +139,13 @@ contract NNETH is INNETH {
             // = 1 if decimals are same value
             reserveVsATokenDecimalOffset = 10**(aTokenDecimals - reserveDecimals);
         }
-        debtTokenDecimals = debtToken.decimals();
-
+        
+        try debtToken.decimals() returns (uint8 dec) {
+            debtTokenDecimals = dec;
+            return;
+        } catch (bytes memory _err) {
+            debtTokenDecimals = 18;
+        }
 
         // Would make sense to do here but reverts if caller has no collateral yet
         // aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);

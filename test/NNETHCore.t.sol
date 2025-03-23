@@ -70,7 +70,7 @@ contract NNETHCore is NNETHBaseTest {
     }
 
     function test_pullReserves_onlynnCityTreasury(address depositor, address rando) public {
-        // function should work on 0 values
+        // auth should work on 0 yield, 0 deposits
         vm.prank(nnETH.ZU_CITY_TREASURY());
         nnETH.pullReserves(0);
         
@@ -78,6 +78,7 @@ contract NNETHCore is NNETHBaseTest {
         vm.expectRevert(NNETH.NotnnCity.selector);
         nnETH.pullReserves(0);
 
+        // auth should work w/ yield/deposits
         _depositnnEth(depositor, 10 ether, true);
         vm.warp(block.timestamp + 10 days);
 
@@ -88,6 +89,7 @@ contract NNETHCore is NNETHBaseTest {
         vm.expectRevert(NNETH.NotnnCity.selector);
         nnETH.pullReserves(1);
     }
+
     function invariant_getYieldEarned_aTokenVsTotalSupply() public {
         uint256 n = _depositnnEth(address(0x14632332), 100 ether, true);
         vm.warp(block.timestamp + 888888);
@@ -178,9 +180,9 @@ contract NNETHCore is NNETHBaseTest {
         if(borrowable < 1000) return;
 
         vm.prank(address(nnETH));
-        debtUSDC.approveDelegation(depositor, n);
+        debtToken.approveDelegation(depositor, n);
         vm.prank(depositor);
-        aave.borrow(address(USDC), (borrowable * 2), 2, 200, address(nnETH));
+        aave.borrow(borrowToken, (borrowable * 2), 2, 200, address(nnETH));
 
         uint256 totalUnderlying = nnETH.underlying();
         uint256 unhealthyHF = nnETH.getExpectedHF();
@@ -205,7 +207,7 @@ contract NNETHCore is NNETHBaseTest {
         _lend(city, borrowable);
 
         vm.startPrank(city);
-        aave.borrow(address(USDC), borrowable, 2, 200, address(nnETH));
+        aave.borrow(borrowToken, borrowable, 2, 200, address(nnETH));
         
         // LTV above target
         (,,uint256 availableBorrow,,uint256 ltv,uint256 hf) = aave.getUserAccountData(address(nnETH));
@@ -214,7 +216,7 @@ contract NNETHCore is NNETHBaseTest {
         uint256 debtBalance1 = nnETH.getDebt();
         // vm.expectRevert(bytes(AaveErrors.COLLATERAL_CANNOT_COVER_NEW_BORROW), address(aave));
         vm.expectRevert();
-        aave.borrow(address(USDC), availableBorrow > 100 ? availableBorrow / 1e2 + 1 : 1, 2, 200, address(nnETH)); // 1 wei over target LTV should revert
+        aave.borrow(borrowToken, availableBorrow > 100 ? availableBorrow / 1e2 + 1 : 1, 2, 200, address(nnETH)); // 1 wei over target LTV should revert
 
         // LTV still above target
         (,,uint256 availableBorrow2,,uint256 ltv2,uint256 hf2) = aave.getUserAccountData(address(nnETH));

@@ -9,7 +9,7 @@ import {Handler} from "./NNETHPlaybook.t.sol";
 contract NNETHAaveIntegration is NNETHBaseTest {
     Handler public handler;
 
-    function setUp() override public {
+    function setUp() override virtual public {
         super.setUp();
         handler = new Handler(nnETH, address(reserveToken));
 
@@ -110,7 +110,7 @@ contract NNETHAaveIntegration is NNETHBaseTest {
         uint256 credit = debtToken.borrowAllowance(address(nnETH), city);
 
         vm.startPrank(city);
-        aave.borrow(address(USDC), 1, 2, 0, address(nnETH));
+        aave.borrow(borrowToken, 1, 2, 0, address(nnETH));
         vm.stopPrank();
     }
 
