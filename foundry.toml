@@ -5,7 +5,7 @@ libs = ["lib"]
 
 [invariant]
 runs = 10 # 2000
-depth = 1 # 25
+depth = 2 # 25
 fail_on_revert = false
 call_override = false
 dictionary_weight = 80

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
-// https://github.com/horsefacts/nnETH-invariant-testing/blob/main/test/WETH9.symbolic.t.sol
+// https://github.com/horsefacts/NNETH-invariant-testing/blob/main/test/WETH9.symbolic.t.sol
 
 pragma solidity ^0.8.26;
 
 import {SymTest} from "halmos-cheatcodes/SymTest.sol";
 import {Test} from "forge-std/Test.sol";
 
-import {nnETH as NetworkNationETH} from "../src/nnETH.sol";
-import {nnEthBaseTest} from "./nnEthBaseTest.t.sol";
+import {NNETH} from "../src/NNETH.sol";
+import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 
-contract WETHSymTest is SymTest, nnEthBaseTest {
+contract WETHSymTest is SymTest, NNETHBaseTest {
 
     function test_globalInvariants(bytes4 selector, address caller, uint256 val) public {
         // Execute an arbitrary tx
@@ -291,13 +291,13 @@ contract WETHSymTest is SymTest, nnEthBaseTest {
         // Generate calldata based on the function selector
         // wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         bytes memory args;
-        if (selector == NetworkNationETH.withdraw.selector) {
+        if (selector == NNETH.withdraw.selector) {
             args = abi.encode(wad);
-        } else if (selector == NetworkNationETH.approve.selector) {
+        } else if (selector == NNETH.approve.selector) {
             args = abi.encode(guy, wad);
-        } else if (selector == NetworkNationETH.transfer.selector) {
+        } else if (selector == NNETH.transfer.selector) {
             args = abi.encode(dst, wad);
-        } else if (selector == NetworkNationETH.transferFrom.selector) {
+        } else if (selector == NNETH.transferFrom.selector) {
             args = abi.encode(src, dst, wad);
         } else {
             // For functions where all parameters are static (not dynamic arrays or bytes),

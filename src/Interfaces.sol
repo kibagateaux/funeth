@@ -83,7 +83,7 @@ interface IAaveMarket {
     function getPriceOracle() external view returns (address);
   }
 
-interface InnETH is IERC20 {
+interface INNETH is IERC20 {
     function initialize(address _reserveToken, address market, address _debtToken, uint8 eMode, string memory _name, string memory _sym) external;
 
     function reserveToken() external returns(IERC20x);

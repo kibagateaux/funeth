@@ -7,8 +7,8 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {console} from "forge-std/console.sol";
 import {AddressSet, LibAddressSet} from "./helpers/AddressSet.sol";
 import {IERC20x} from "../src/Interfaces.sol";
-import {nnETH as NetworkNationETH} from "../src/nnETH.sol";
-import {nnEthBaseTest} from "./nnEthBaseTest.t.sol";
+import {NNETH} from "../src/NNETH.sol";
+import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 
 
 uint256 constant ETH_SUPPLY = 120_500_000 ether;
@@ -19,7 +19,7 @@ contract ForcePush {
     }
 }
 
-contract Handler is nnEthBaseTest {
+contract Handler is NNETHBaseTest {
     using LibAddressSet for AddressSet;
 
     uint256 public ghost_depositSum;
@@ -52,7 +52,7 @@ contract Handler is nnEthBaseTest {
         _;
     }
 
-    constructor(NetworkNationETH _weth, address reserveToken) {
+    constructor(NNETH _weth, address reserveToken) {
         nnETH = _weth;
         token = reserveToken;
         deal(address(reserveToken), address(this), ETH_SUPPLY);

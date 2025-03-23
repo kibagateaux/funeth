@@ -1,12 +1,12 @@
 pragma solidity ^0.8.26;
 
-import {nnETH as NetworkNationETH} from "../src/nnETH.sol";
-import {IERC20x, IAaveMarket, InnETH, AaveErrors} from "../src/Interfaces.sol";
+import {NNETH} from "../src/NNETH.sol";
+import {IERC20x, IAaveMarket, INNETH, AaveErrors} from "../src/Interfaces.sol";
 
-import {nnEthBaseTest} from "./nnEthBaseTest.t.sol";
-import {Handler} from "./nnEthPlaybook.sol";
+import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
+import {Handler} from "./NNETHPlaybook.t.sol";
 
-contract nnEthAaveIntegration is nnEthBaseTest {
+contract NNETHAaveIntegration is NNETHBaseTest {
     Handler public handler;
 
     function setUp() override public {
@@ -27,7 +27,7 @@ contract nnEthAaveIntegration is nnEthBaseTest {
         targetContract(address(handler));
     }
 
-    function invariant_totalSupplyEqualsATokenBalance() public {
+    function invariant_totalSupplyEqualsATokenBalance() public view {
         assertEq(nnETH.totalSupply(), nnETH.aToken().balanceOf(address(nnETH)));
     }
 
@@ -61,9 +61,9 @@ contract nnEthAaveIntegration is nnEthBaseTest {
         assertGt(nnETH.underlying(), aTokenBalance + 1);
     }
 
-    function test_lend_canDelegateCredit(address city, uint256 amount) public {
+    function test_lend_canDelegateCredit(address city) public {
         vm.assume(city != address(0)); // prevent aave error sending to 0x0
-        uint256 n = _depositnnEth(address(0xdead), amount, true);
+        uint256 n = _depositnnEth(address(0xdead), 100 ether, true);
 
         // todo expect call to nnETH.debtToken
         // bytes memory data = abi.encodeWithSelector(IERC20x.approveDelegation.selector, city, n); 
@@ -78,7 +78,7 @@ contract nnEthAaveIntegration is nnEthBaseTest {
 
         vm.prank(treasury);
         vm.expectEmit(true, true, true, true);
-        emit NetworkNationETH.Lend(address(treasury), address(debtToken), city, borrowable);
+        emit NNETH.Lend(address(treasury), address(debtToken), city, borrowable);
         nnETH.lend(city, borrowable);
         
         uint256 credit = debtToken.borrowAllowance(address(nnETH), city);
@@ -86,45 +86,42 @@ contract nnEthAaveIntegration is nnEthBaseTest {
         assertEq(credit, borrowable);
         assertEq(nnETH.getCityCredit(city), credit); // ensure parity btw nneth and aave
     }
+
+    function invariant_lend_noDebtWithoutDelegation() public view {
+        (,uint256 totalDebtBase,,,,) = aave.getUserAccountData(address(nnETH));
+        assertGe(nnETH.totalCreditDelegated(), totalDebtBase / 1e2);
+    }
     
     function test_lend_canBorrowAgainst(address user, address city, uint256 amount) public {
-        uint256 n = _depositnnEth(user, amount, true);
+
+        uint256 n = _depositForBorrowing(user, amount);
         (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
 
         (,,uint256 availableBorrow,,,uint256 hf) = aave.getUserAccountData(address(nnETH));
-        assertGe(borrowable + 1, availableBorrow / nnETH.MIN_RESERVE_FACTOR()); // TODO figure out rounding errors
-        assertEq(nnETH.getAvailableCredit(), availableBorrow); // ensure smart contract has right impl too
-        assertGt(hf, nnETH.MIN_RESERVE_FACTOR()); // condition cleared to borrow even without delegation
+
+        assertGe(borrowable, nnETH.convertToDecimal((availableBorrow / nnETH.MIN_RESERVE_FACTOR()) - 1, 8, nnETH.debtTokenDecimals ()));
+        assertEq(nnETH.getAvailableCredit(), nnETH.convertToDecimal(availableBorrow, 8, nnETH.debtTokenDecimals ())); // ensure smart contract has right impl too
+        assertGt(nnETH.convertToDecimal(hf, 18, 0), nnETH.MIN_RESERVE_FACTOR()); // condition cleared to borrow even without delegation
 
         _lend(city, borrowable);
-    
-        // check borrow actually works even if aave says we have credit
-        // failing on borrow
-        // Tried:
-        // - no emode set = ERROR #36 - COLLATERAL_CANNOT_COVER_NEW_BORROW
-        // - setting emode to 0 = ERROR #36 - COLLATERAL_CANNOT_COVER_NEW_BORROW
-        // - setting emode to 1 = ERROR #100 - ASSET_NOT_BORROWABLE_IN_EMODE
 
-        // aave.setUserEMode(aaveEMode);
         (,,uint256 availableToBorrow,,,) = aave.getUserAccountData(address(nnETH));
-        emit log_named_uint("current borrow credit", availableToBorrow);
         uint256 credit = debtToken.borrowAllowance(address(nnETH), city);
-        emit log_named_uint("current delegated credit", credit);
 
         vm.startPrank(city);
         aave.borrow(address(USDC), 1, 2, 0, address(nnETH));
         vm.stopPrank();
     }
 
-    function test_getAvailableCredit_matchesAaveUserSummary() public {
-        uint256 ltvConfig = 80; // TODO pull from Aave.reserveConfig or userAcccountData
+    function invariant_getAvailableCredit_matchesAaveUserSummary() public {
+        uint256 ltvConfig = 80;
         uint256 _deposit = 60 ether;
         uint256 deposit = _depositnnEth(address(0xdead), _deposit, true);
 
 
         (uint256 totalCredit, ) = _borrowable(deposit);
-        assertEq(totalCredit, nnETH.getAvailableCredit());
+        assertEq(totalCredit / 1e2, nnETH.getAvailableCredit());
     }
 
 }

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// https://github.com/horsefacts/nnETH-invariant-testing/blob/main/test/nnETH.invariants.t.sol
+// https://github.com/horsefacts/NNETH-invariant-testing/blob/main/test/nnETH.invariants.t.sol
 
 pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
-import {nnETH as NetworkNationETH} from "../src/nnETH.sol";
 
-import {Handler, ETH_SUPPLY} from "./nnEthPlaybook.sol";
-import {nnEthBaseTest} from "./nnEthBaseTest.t.sol";
+import {Handler, ETH_SUPPLY} from "./nnEthPlaybook.t.sol";
+import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 
-contract nnEthInvariants is nnEthBaseTest {
+contract nnEthInvariants is NNETHBaseTest {
     Handler public handler;
 
     function setUp() override public {
@@ -35,18 +34,18 @@ contract nnEthInvariants is nnEthBaseTest {
     // be unwrapped back into ETH. The sum of the Handler's
     // ETH balance plus the WETH totalSupply() should always
     // equal the total ETH_SUPPLY.
-    function invariant_conservationOfETH() public {
+    function invariant_conservationOfETH() public view {
         assertEq(ETH_SUPPLY, reserveToken.balanceOf(address(handler)) + nnETH.totalSupply());
     }
 
-    function invariant_noETHUnfarmed() public {
+    function invariant_noETHUnfarmed() public view {
         assertEq(0, address(nnETH).balance);
         assertGe(nnETH.underlying(), 0);
     }
 
     // The WETH contract's Ether balance should always be
     // at least as much as the sum of individual deposits
-    function invariant_solvencyDeposits() public {
+    function invariant_solvencyDeposits() public view {
         assertEq(
             nnETH.underlying(),
             handler.ghost_depositSum() + handler.ghost_forcePushSum() - handler.ghost_withdrawSum()
@@ -70,7 +69,7 @@ contract nnEthInvariants is nnEthBaseTest {
         handler.forEachActor(this.assertAccountBalanceLteTotalSupply);
     }
 
-    function assertAccountBalanceLteTotalSupply(address account) external {
+    function assertAccountBalanceLteTotalSupply(address account) external view {
         assertLe(nnETH.balanceOf(account), nnETH.totalSupply());
     }
 

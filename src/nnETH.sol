@@ -1,12 +1,12 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/console.sol";
-import {InnETH, IERC20x, IAaveMarket, ReserveData} from "./Interfaces.sol";
+import {INNETH, IERC20x, IAaveMarket, ReserveData} from "./Interfaces.sol";
 
-contract nnETH is InnETH {
+contract NNETH is INNETH {
     // Multisig deployed on Mainnet, Arbitrum, Base, OP,
     address public constant ZU_CITY_TREASURY = address(0xC958dEeAB982FDA21fC8922493d0CEDCD26287C3);
-    uint64 public constant MIN_DEPOSIT = 100_000_000; // to prevent aave math from causing reverts on small amounts from rounding decimal diffs. $100 USDC or 1e-9 ETH
+    uint64 public constant MIN_DEPOSIT = 100_000_000; // to prevent aave math from causing reverts on small amounts from rounding decimal diffs. $100 USDC or 0.5 ETH ETH
     // TODO figure out lowest amount where aave tests dont fail
     // uint256 public constant MIN_DEPOSIT = 100; // to prevent aave math from causing reverts on small amounts. $100 USDC or 1e-9 ETH
     
@@ -16,6 +16,9 @@ contract nnETH is InnETH {
     uint8 public constant MIN_RESERVE_FACTOR = 8;
     /// @notice used to convert AAVE LTV to HF calc
     uint16 public constant BPS_COEFFICIENT = 1e4;
+
+    /// @notice full decimal offset between reserveToken and aToken e.g. 1e10 not 10
+    uint256 public reserveVsATokenDecimalOffset;
 
     /// @notice nnETH token decimals. same as reserveToken decimals
     uint8 public decimals;
@@ -29,7 +32,7 @@ contract nnETH is InnETH {
     string public name;
     string public symbol;
 
-    uint256 internal reserveVsATokenDecimalOffset;
+
     /// @notice Token to accept for home payments in nnCity
     IERC20x public reserveToken;
     /// @notice Aave Pool for lending + borrowing
@@ -132,14 +135,17 @@ contract nnETH is InnETH {
         decimals = reserveDecimals;
         uint8 aTokenDecimals = aToken.decimals();
         // assume aToken = 18 decimals and reserve token <= 18 decimals
-        if(aTokenDecimals > reserveDecimals) {
+        if(aTokenDecimals >= reserveDecimals) {
+            // = 1 if decimals are same value
             reserveVsATokenDecimalOffset = 10**(aTokenDecimals - reserveDecimals);
         }
         debtTokenDecimals = debtToken.decimals();
 
+
         // Would make sense to do here but reverts if caller has no collateral yet
         // aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);
     }
+
 
 
     function deposit(uint256 dubloons) public {
@@ -162,6 +168,11 @@ contract nnETH is InnETH {
         farm(reserveToken.balanceOf(address(this))); // scoop tokens sent directly too
         mint(receiver, dubloons);
         emit Deposit(msg.sender, receiver, dubloons, city, referrer);
+    }
+
+    function mint(address to, uint256 dubloons) private {
+        balanceOf[to] += dubloons;
+        totalSupply += dubloons;
     }
 
     function farm(uint256 dubloons) public {
@@ -207,11 +218,24 @@ contract nnETH is InnETH {
 
         return true;
     }
+    
+    // nnETH Treasury functions
+
+    function _assertTreasury() internal view {
+        if(msg.sender != ZU_CITY_TREASURY) revert NotnnCity();
+    }
+
+    function _assertFinancialHealth() internal view {
+        if(totalSupply > underlying()) revert InsufficientReserves();
+        if(getExpectedHF() < MIN_RESERVE_FACTOR) revert CreditRisk();
+    }
+
 
     function pullReserves(uint256 dubloons) public {
-        _assertnnCity();
+        _assertTreasury();
 
-        if(getYieldEarned() < dubloons) revert InsufficientReserves();
+        // checked in _assertFinancialHealth. Can do before external call if needed for security
+        // if(getYieldEarned() < dubloons) revert InsufficientReserves();
 
         aToken.transfer(ZU_CITY_TREASURY, dubloons);
         
@@ -233,7 +257,7 @@ contract nnETH is InnETH {
      * @param dubloons - Should be Aave market denominated. Usually USD to 10 decimals
     */
     function lend(address city, uint256 dubloons) public {
-        _assertnnCity();
+        _assertTreasury();
 
         uint256 currentCredit = credited[city];
         credited[city] = dubloons;
@@ -254,40 +278,37 @@ contract nnETH is InnETH {
 
         emit Lend(msg.sender, address(debtToken), city, dubloons);
     }
-    
-    function _assertnnCity() internal view {
-        if(msg.sender != ZU_CITY_TREASURY) revert NotnnCity();
-    }
-
-    function _assertFinancialHealth() internal view {
-        if(underlying() < totalSupply) revert InsufficientReserves();
-        if(getExpectedHF() < MIN_RESERVE_FACTOR) revert CreditRisk();
-    }
-
-    function underlying() public view returns (uint256) {
-        return aToken.balanceOf(address(this));
-    }
 
     /// @notice returns worst case scenario health factor if all credit extended is borrowed at the same time
     function getExpectedHF() public view returns (uint8) {
         // ideally use liquidationThreshold not ltv but aave uses ltv for "borrowable" amount so would make tests messier
         (uint256 totalCollateralBase,uint256 totalDebtBase,uint256 borrowable,uint256 liquidationThreshold, uint256 ltv, uint256 hf) = aaveMarket.getUserAccountData(address(this));
 
+        
         // aave assumes debt amount is usd in 8 decimals. convert debt token decimals to match
         // https://github.com/aave-dao/aave-v3-origin/blob/a0512f8354e97844a3ed819cf4a9a663115b8e20/src/contracts/protocol/libraries/logic/LiquidationLogic.sol#L72
         // assumes we only allow stablecoins for borrowing.
         // Also assumes debtToken decimals = actual token decimals
-        uint256 unborrowedDebt = convertToDecimal(totalCreditDelegated, debtTokenDecimals, 6) - totalDebtBase;
+
+        // TODO fails if we have debt > credit delegated e.g. interest or price increase since delegation
+        uint256 scaledDelegatedCredit = convertToDecimal(totalCreditDelegated, debtTokenDecimals, 8);
+        // uint256 unborrowedDebt = scaledDelegatedCredit - totalDebtBase;
+        // console.log("getExpectedHF:  unborrowedDebt", unborrowedDebt);
+
+        // uint256 scaledDelegatedCredit = convertToDecimal(totalCreditDelegated, debtTokenDecimals, 8);
+        uint256 unborrowedDebt2 = totalDebtBase > scaledDelegatedCredit ? totalDebtBase : scaledDelegatedCredit - totalDebtBase;
+        console.log("getExpectedHF:  totalDebtBase", totalDebtBase);
+        console.log("getExpectedHF:  scaledDelegatedCredit", scaledDelegatedCredit);
+        console.log("getExpectedHF:  unborrowedDebt2", unborrowedDebt2);
+
+        uint256 maxDebt = totalDebtBase + unborrowedDebt2;
 
         // if already borrowing all available credit then current hf is accurate
-        if(unborrowedDebt == 0) return uint8(convertToDecimal(hf, 18, 0));
-
-        uint256 maxDebt = totalDebtBase + unborrowedDebt;
-
+        // if(unborrowedDebt2 == 0) return uint8(convertToDecimal(hf, 18, 2)); // returns 100
 
         if (maxDebt == 0) {
             // Avoid division by zero
-            return uint8(convertToDecimal(hf, 18, 0));
+            return uint8(convertToDecimal(hf, 18, 2)); // returns 100
         }
 
         uint256 maxBorrowedHF = (totalCollateralBase * ltv) / maxDebt / BPS_COEFFICIENT;
@@ -299,30 +320,37 @@ contract nnETH is InnETH {
         // return uint8(convertToDecimal((hf * totalDebtBase) / maxDebt, 18, 0));
     }
 
-    /// @notice returns current health factor disregarding future potential debt from popup loans
-    function getYieldEarned() public view returns (uint256) {
-        return underlying() - totalSupply; // TODO: account for decimals
+    /// Getter functions 
+
+    /// @notice total amount of tokens deposited in aave. Denominated in reserrveToken decimals
+    function underlying() public view returns (uint256) {
+        return aToken.balanceOf(address(this)) / reserveVsATokenDecimalOffset;
     }
 
-    /// @notice returns current health factor disregarding future potential debt from popup loans
+    /// @notice returns current health factor disregarding future potential debt from NN loans
+    function getYieldEarned() public view returns (uint256) {
+        return underlying() - totalSupply - 1; // -1 to account for rounding errors in aave
+    }
+
+    /// @notice returns current health factor disregarding future potential debt from NN loans
     function getHF() public view returns (uint256) {
         (,,,,,uint256 healthFactor) = aaveMarket.getUserAccountData(address(this));
-        return healthFactor;
+        return convertToDecimal(healthFactor, 18, 2);
     }
 
     function getDebt() public view returns (uint256) {
         (,uint256 debt,,,,) = aaveMarket.getUserAccountData(address(this));
-        return debt;
+        return convertToDecimal(debt, 8, debtTokenDecimals);
     }
 
     function getAvailableCredit() public view returns (uint256) {
         (,,uint256 creditLeft,,,) = aaveMarket.getUserAccountData(address(this));
-        return creditLeft;
+        return convertToDecimal(creditLeft, 8, debtTokenDecimals);
     }
 
     function getTotalCredit() public view returns (uint256) {
         (,uint256 debt, uint256 creditLeft,,,) = aaveMarket.getUserAccountData(address(this));
-        return debt + creditLeft;
+        return convertToDecimal(debt + creditLeft, 8, debtTokenDecimals);
     }
 
     function getCityCredit(address city) public view returns (uint256) {
@@ -337,12 +365,7 @@ contract nnETH is InnETH {
         return size;
     }
 
-    function mint(address to, uint256 dubloons) private {
-        balanceOf[to] += dubloons;
-        totalSupply += dubloons;
-    }
-
-    function convertToDecimal(uint256 amount, uint8 currentDecimals, uint8 targetDecimals) private pure returns (uint256) {
+    function convertToDecimal(uint256 amount, uint8 currentDecimals, uint8 targetDecimals) public pure returns (uint256) {
         if(currentDecimals == targetDecimals) return amount;
         if(currentDecimals > targetDecimals) {
             return amount / 10**(currentDecimals - targetDecimals);
