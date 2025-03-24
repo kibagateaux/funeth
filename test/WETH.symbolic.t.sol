@@ -51,6 +51,9 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
 
     // @dev withdraw() decreases the caller's balance by exactly msg.value;
     function test_withdraw_withdrawerBalanceUpdate(address guy, uint256 wad) public {
+        vm.assume(user != address(debtToken));
+        vm.assume(user != address(nnETH.aToken()));
+
         wad = _depositnnEth(guy, wad, true);
 
         uint256 balanceBefore = nnETH.balanceOf(guy);
@@ -65,6 +68,9 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     // @dev withdraw() does not change the balance of any address besides the caller.
     function test_withdraw_balancePreservation(address guy, address gal, uint256 wad) public {
         vm.assume(guy != gal);
+        vm.assume(user != address(debtToken));
+        vm.assume(user != address(nnETH.aToken()));
+
         wad = _depositnnEth(guy, wad, true);
 
         uint256 balanceBefore = nnETH.balanceOf(gal);

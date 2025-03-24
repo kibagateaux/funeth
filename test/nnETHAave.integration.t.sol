@@ -61,6 +61,20 @@ contract NNETHAaveIntegration is NNETHBaseTest {
         assertGt(nnETH.underlying(), aTokenBalance + 1);
     }
 
+    function invariant_getAvailableCredit_matchesAaveUserSummary() public {
+        uint256 ltvConfig = 80;
+        uint256 _deposit = 60 ether;
+        uint256 deposit = _depositnnEth(address(0xdead), _deposit, true);
+
+
+        (uint256 totalCredit, ) = _borrowable(deposit);
+        assertEq(totalCredit / 1e2, nnETH.getAvailableCredit());
+    }
+
+    // TODO test debtToken balances.
+    // Does it go to zuCity contract or borrower?
+
+
     function test_lend_canDelegateCredit(address city) public {
         vm.assume(city != address(0)); // prevent aave error sending to 0x0
         uint256 n = _depositnnEth(address(0xdead), 100 ether, true);
@@ -93,17 +107,17 @@ contract NNETHAaveIntegration is NNETHBaseTest {
     }
     
     function test_lend_canBorrowAgainst(address user, address city, uint256 amount) public {
-
         uint256 n = _depositForBorrowing(user, amount);
         (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
 
         (,,uint256 availableBorrow,,,uint256 hf) = aave.getUserAccountData(address(nnETH));
 
-        assertGe(borrowable, nnETH.convertToDecimal((availableBorrow / nnETH.MIN_RESERVE_FACTOR()) - 1, 8, nnETH.debtTokenDecimals ()));
-        assertEq(nnETH.getAvailableCredit(), nnETH.convertToDecimal(availableBorrow, 8, nnETH.debtTokenDecimals ())); // ensure smart contract has right impl too
+        assertGe(borrowable, nnETH.convertToDecimal((availableBorrow / nnETH.MIN_RESERVE_FACTOR()), 8, nnETH.debtTokenDecimals()) - 1);
+        assertEq(nnETH.getAvailableCredit(), nnETH.convertToDecimal(availableBorrow, 8, nnETH.debtTokenDecimals())); // ensure smart contract has right impl too
         assertGt(nnETH.convertToDecimal(hf, 18, 0), nnETH.MIN_RESERVE_FACTOR()); // condition cleared to borrow even without delegation
 
+         // for some reason test fails if this goes first even though nothing borrowed and getExpectedHF not used
         _lend(city, borrowable);
 
         (,,uint256 availableToBorrow,,,) = aave.getUserAccountData(address(nnETH));
@@ -114,14 +128,22 @@ contract NNETHAaveIntegration is NNETHBaseTest {
         vm.stopPrank();
     }
 
-    function invariant_getAvailableCredit_matchesAaveUserSummary() public {
-        uint256 ltvConfig = 80;
-        uint256 _deposit = 60 ether;
-        uint256 deposit = _depositnnEth(address(0xdead), _deposit, true);
+    function test_borrow_debtTokenBalanceIncreases(address user, address city, uint256 amount) public {
+        uint256 n = _depositForBorrowing(user, amount);
+        (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
+         // for some reason test fails if this goes first even though nothing borrowed and getExpectedHF not used
+        assertEq(debtToken.balanceOf(address(nnETH)), 0);
+        _lend(city, borrowable);
+        assertEq(debtToken.balanceOf(address(nnETH)), 0);
 
-        (uint256 totalCredit, ) = _borrowable(deposit);
-        assertEq(totalCredit / 1e2, nnETH.getAvailableCredit());
+        (,,uint256 availableToBorrow,,,) = aave.getUserAccountData(address(nnETH));
+
+        vm.startPrank(city);
+        aave.borrow(borrowToken, 1, 2, 0, address(nnETH));
+        vm.stopPrank();
+        assertEq(debtToken.balanceOf(address(nnETH)), 1);
     }
+
 
 }

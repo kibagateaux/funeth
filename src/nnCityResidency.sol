@@ -9,7 +9,7 @@ pragma solidity ^0.8.26;
 // Struct ResidencyType - bool active, uint64 amount, address reserveToken, address nnToken, uint32 minStakeLength
 // Struct Residency - uint8 residencyType, uint32 releaseDate
 // mapping residencies - nftIf -> Residency
-// e.g. Base = WETH, nnETH, 64 (~$250k, $13k /yr in yield)
+// e.g. Base = WETH, nnETH, 64ETH (~$250k, $13k /yr in yield)
 
 // claim - deposit nnToken, claim residency
 // stakeAndClaim - take reserveToken, deposit to nnToken, claim residency in one tx

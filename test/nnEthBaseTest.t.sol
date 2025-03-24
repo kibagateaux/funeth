@@ -9,7 +9,6 @@ contract NNETHBaseTest is Test {
     NNETH public nnETH;
 
     // Base asset/protocol addresses
-
     IERC20x public WETH = IERC20x(0x4200000000000000000000000000000000000006);
     IERC20x public debtWETH = IERC20x(0x24e6e0795b3c7c71D965fCc4f371803d1c1DcA1E);
     IERC20x public USDC = IERC20x(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
@@ -17,6 +16,8 @@ contract NNETHBaseTest is Test {
     
     IAaveMarket public aaveBase = IAaveMarket(0xA238Dd80C259a72e81d7e4664a9801593F98d1c5);
     uint256 public MAX_AAVE_DEPOSIT = 1000 ether; // TODO get supply cap for Aave on network
+    uint256 public MAX_AAVE_DEPOSIT_USDC = 2000 gwei; // TODO get supply cap for Aave on network
+
     uint8 aaveEMode = 0;
     
     // chain agnostic test variables
@@ -31,6 +32,8 @@ contract NNETHBaseTest is Test {
 
     function setUp() virtual public {
         baseFork = vm.createSelectFork(vm.rpcUrl('base'), 23_502_225);
+        // baseFork = vm.createSelectFork(vm.rpcUrl('base'), 27598416);
+
         nnETH = new NNETH();
 
         // 1 = ETHLIKE. Aave on Base does not have stablecoin eMode, only ETH.
@@ -42,7 +45,7 @@ contract NNETHBaseTest is Test {
             amount,
             nnETH.MIN_DEPOSIT(),// prevent decimal rounding errors on aave protocol
             // prevent max supply reverts on Aave
-            reserveToken.decimals() == 18 ? MAX_AAVE_DEPOSIT : 1000 gwei
+            reserveToken.decimals() == 18 ? MAX_AAVE_DEPOSIT : MAX_AAVE_DEPOSIT_USDC
         ); 
 
         vm.startPrank(user);
@@ -53,13 +56,14 @@ contract NNETHBaseTest is Test {
 
     /// @notice ensure enough collateral so we have credit > 0 so borrow() calls dont fail on 0.
     function _depositForBorrowing(address user, uint256 amount) internal returns (uint256 deposited) {
+        vm.assume(user != address(0));
         deposited = bound(
             amount,
-            // prevent decimal rounding errors btw price feed + tokens during testing
+            // higher min prevents decimal rounding errors btw price feed + tokens during testing
             reserveToken.decimals() == 18 ? 10 ether : 100_000_000,
             // prevent max supply reverts on Aave
-            reserveToken.decimals() == 18 ? MAX_AAVE_DEPOSIT : 1000 gwei
-        ); 
+            reserveToken.decimals() == 18 ? MAX_AAVE_DEPOSIT : MAX_AAVE_DEPOSIT_USDC
+        );
 
         deal(address(nnETH.reserveToken()), user, deposited);
 
@@ -70,6 +74,7 @@ contract NNETHBaseTest is Test {
     }
 
     function _depositnnEth(address user, uint256 amount, bool mint) internal returns (uint256 deposited) {
+        vm.assume(user != address(0));
         deposited = bound(amount, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT); // prevent min/max supply reverts on Aave
 
         if(mint) deal(address(nnETH.reserveToken()), user, deposited);
@@ -88,8 +93,6 @@ contract NNETHBaseTest is Test {
     }
 
     function _withdrawnnEth(address user, uint256 amount) internal {
-        vm.assume(user != address(debtToken));
-        vm.assume(user != address(nnETH.aToken()));
         // when we deposit -> withdraw immediately we have 1 wei less balance than we deposit
         // probs attack prevention method on aave protocol so move 1 block ahead to increase balance from interest
         
@@ -103,23 +106,26 @@ contract NNETHBaseTest is Test {
         NOT debtToken decimals so must convert for calculations on lend/borrow
     */
     function _borrowable(uint256 nnethSupply) internal returns (uint256 aaveTotalCredit, uint256 nnEthCreditLimit){
-        uint256 ltvConfig = 8000; // TODO pull from Aave.reserveConfig or userAcccountData
-        
-        //mainnet oracle. Base doesnt work
+        (,,,, uint256 ltvConfig,) = aave.getUserAccountData(address(nnETH));
+
+        // Normal market doesnt return as it should so use AddressProvider to fetch oracle.
         (, bytes memory data) = IAaveMarket(0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D).getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", reserveToken));
-        // (, bytes memory data) = aaveBase.getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", reserveToken));
+
         uint256 price;
         assembly {
             price := mload(add(data, 32))
         }
 
-        aaveTotalCredit = (nnethSupply * ltvConfig * price) / 1e22; // total credit / token18 vs aave8 decimal diff (10) / price decimals (8) / bps decimals (4)
-        nnEthCreditLimit = ((aaveTotalCredit / nnETH.MIN_RESERVE_FACTOR()) - 1) / 1e2; // just under limit. account for aave vs debtToken decimals
+        aaveTotalCredit = (nnethSupply * ltvConfig * price)
+            / 1e4 // ltv bps offset
+            / 1e8;  // price decimals
 
-        emit log_named_uint("ETH collateralized (18 dec)", nnethSupply);
-        emit log_named_uint("ETH price (8 dec)", price);
-        emit log_named_uint("collateral val (18 dec)", (nnethSupply * price) / 1e8);
-        emit log_named_uint("max credit usd (0 dec)", aaveTotalCredit);
+        // 8 = some aave internal decimal thing since we already offset price decimals
+        aaveTotalCredit = nnETH.decimals() > 10 ?
+            aaveTotalCredit / (10**(nnETH.decimals() - 8)) :
+            aaveTotalCredit * (10**(8-nnETH.decimals()));
+
+        nnEthCreditLimit = ((aaveTotalCredit / nnETH.MIN_RESERVE_FACTOR()) - 1) / 1e2; // just under limit. account for aave vs debtToken decimals
 
         // 41_666_667 min ETH deposited to borrow 1 USDC of credit
         // 100 = nnETHCreditLimit in Aave 8 decimals = 1 USDC in 6 decimals

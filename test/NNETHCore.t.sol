@@ -70,6 +70,8 @@ contract NNETHCore is NNETHBaseTest {
     }
 
     function test_pullReserves_onlynnCityTreasury(address depositor, address rando) public {
+        vm.assume(rando != nnETH.ZU_CITY_TREASURY());
+
         // auth should work on 0 yield, 0 deposits
         vm.prank(nnETH.ZU_CITY_TREASURY());
         nnETH.pullReserves(0);
@@ -105,6 +107,10 @@ contract NNETHCore is NNETHBaseTest {
         assertGe(diff, diff2 - 1);
         assertGe(nnETH.getYieldEarned(), diff - 1);
     }
+
+    // TODO test reserveToken price goes down and becomes liquidatable
+    // reserveToken price goes up and more credit available
+    // 
 
     function test_pullReserves_sendsATokenToTreasury(address depositor, uint256 amount) public {
         uint256 n = _depositnnEth(depositor, amount, true);
@@ -199,7 +205,6 @@ contract NNETHCore is NNETHBaseTest {
         assertEq(unhealthyHF, nnETH.getExpectedHF());
     }
 
-
     function test_lend_borrowFailsIfOverDebtRatio(address city, uint256 _deposit) public {
         uint256 deposit = _depositForBorrowing(address(0xdead), _deposit);
         (uint256 delegatedCredit, uint256 borrowable) = _borrowable(deposit);
@@ -242,6 +247,9 @@ contract NNETHCore is NNETHBaseTest {
     }
 
     function test_withdraw_revertOnMaliciousWithdraws(address user, uint256 amount) public {
+        vm.assume(user != address(debtToken));
+        vm.assume(user != address(nnETH.aToken()));
+
         uint256 n = _depositForBorrowing(user, amount);
         (, uint256 borrowable) = _borrowable(n);
         vm.warp(block.timestamp + 888);
@@ -253,7 +261,7 @@ contract NNETHCore is NNETHBaseTest {
         
         vm.prank(user);
         vm.expectRevert(NNETH.MaliciousWithdraw.selector);
-        nnETH.withdraw(n);
+        _withdrawnnEth(user, n);
 
         // still above min redeem factor bc withdraw failed
         assertGe(nnETH.getExpectedHF(), nnETH.MIN_REDEEM_FACTOR());
