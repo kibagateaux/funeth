@@ -80,6 +80,8 @@ interface IAaveMarket {
     ) external;
 
     function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
+
+    function ADDRESSES_PROVIDER() external view returns (address);
     /// @dev actually on IPoolAddressProvider not IPool
     function getPriceOracle() external view returns (address);
   }

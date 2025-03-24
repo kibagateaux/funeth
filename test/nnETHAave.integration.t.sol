@@ -132,7 +132,6 @@ contract NNETHAaveIntegration is NNETHBaseTest {
         uint256 n = _depositForBorrowing(user, amount);
         (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
-         // for some reason test fails if this goes first even though nothing borrowed and getExpectedHF not used
         assertEq(debtToken.balanceOf(address(nnETH)), 0);
         _lend(city, borrowable);
         assertEq(debtToken.balanceOf(address(nnETH)), 0);
@@ -142,7 +141,27 @@ contract NNETHAaveIntegration is NNETHBaseTest {
         vm.startPrank(city);
         aave.borrow(borrowToken, 1, 2, 0, address(nnETH));
         vm.stopPrank();
+
         assertEq(debtToken.balanceOf(address(nnETH)), 1);
+        // ensure debt given to main account not borrower
+        assertEq(debtToken.balanceOf(address(city)), 0);
+    }
+
+    function test_reserveAssetPrice_matchesAavePrice() public {
+        (,bytes memory data) = address(reserveToken).call(abi.encodeWithSignature("symbol()"));
+        emit log_named_string("reserve asset symbol", abi.decode(data, (string)));
+        uint256 price = nnETH.price(address(reserveToken));
+        emit log_named_uint("reserve asset price", price);
+        assertGt(price, 0);
+    }
+
+    function test_debtAssetPrice_matchesAavePrice() public {
+        // TODO this shows USDC as debt asset on NNUSDC with USDC as reserve asset too
+        (,bytes memory data) = address(borrowToken).call(abi.encodeWithSignature("symbol()"));
+        emit log_named_string  ("debt asset symbol", abi.decode(data, (string)));
+        uint256 price = nnETH.price(address(borrowToken));
+        emit log_named_uint("debt asset price", price);    
+        assertGt(price, 0);
     }
 
 

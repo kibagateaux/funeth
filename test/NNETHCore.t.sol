@@ -46,6 +46,12 @@ contract NNETHCore is NNETHBaseTest {
         vm.stopPrank();
     }
 
+    function test_initialize_configSetup() virtual public {
+        assertEq(address(reserveToken), address(WETH));
+        assertEq(address(debtToken), address(debtUSDC));
+        assertEq(address(borrowToken), address(USDC));
+    }
+
     function test_initialize_cantReinitialize() public {
         vm.expectRevert(NNETH.AlreadyInitialized.selector);
         nnETH.initialize(address(WETH), address(aave), address(debtToken), 1, "nnCity Ethereum", "nnETH");
@@ -258,8 +264,7 @@ contract NNETHCore is NNETHBaseTest {
         nnETH.lend(address(0xdead), borrowable); 
 
         assertGe(nnETH.getExpectedHF(), nnETH.MIN_REDEEM_FACTOR());
-        
-        vm.prank(user);
+
         vm.expectRevert(NNETH.MaliciousWithdraw.selector);
         _withdrawnnEth(user, n);
 

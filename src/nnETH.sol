@@ -355,10 +355,12 @@ contract NNETH is INNETH {
         return debtToken.borrowAllowance(address(this), city);
     }
 
-    /// @notice USD price in 8 decimals from Aave/Chainlink oracles
-    function reserveAssetPrice() public view returns (uint256) {
-        (,uint256 debt,,,,) = aaveMarket.getUserAccountData(address(this));
-        return debt / debtToken.balanceOf(address(this));
+    /// @notice returns price of asset in USD 8 decimals from Aave/Chainlink oracles   
+    function price(address asset) public returns (uint256 usdPrice) {
+        (, bytes memory data) = IAaveMarket(aaveMarket.ADDRESSES_PROVIDER()).getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", asset));
+        assembly {
+            usdPrice := mload(add(data, 32))
+        }
     }
 
     function getContractSize(address _contract) private view returns (uint256) {

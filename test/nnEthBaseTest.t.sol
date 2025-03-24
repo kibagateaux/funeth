@@ -36,6 +36,12 @@ contract NNETHBaseTest is Test {
 
         nnETH = new NNETH();
 
+        (,bytes memory data) = address(reserveToken).call(abi.encodeWithSignature("symbol()"));
+        emit log_named_string("reserve asset symbol", abi.decode(data, (string)));
+        (,bytes memory data2) = address(borrowToken).call(abi.encodeWithSignature("symbol()"));
+        emit log_named_string  ("debt asset symbol", abi.decode(data2, (string)));
+
+
         // 1 = ETHLIKE. Aave on Base does not have stablecoin eMode, only ETH.
         nnETH.initialize(address(reserveToken), address(aave), address(debtToken), aaveEMode, "nnCity Ethereum", "nnETH");
     }
@@ -115,6 +121,8 @@ contract NNETHBaseTest is Test {
         assembly {
             price := mload(add(data, 32))
         }
+        
+        emit log_named_uint("price", price);
 
         aaveTotalCredit = (nnethSupply * ltvConfig * price)
             / 1e4 // ltv bps offset

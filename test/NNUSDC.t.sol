@@ -13,11 +13,17 @@ contract NNUSDCAaveIntegration is NNETHAaveIntegration {
     IERC20x public BTC = IERC20x(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 );
     IERC20x public debtBTC = IERC20x(0x59dca05b6c26dbd64b5381374aAaC5CD05644C28);
 
-    function setUp() override(NNETHAaveIntegration) public {
+    function setUp() override(NNETHAaveIntegration) virtual public {
         reserveToken = USDC;
         debtToken = debtBTC;
         borrowToken = address(BTC);
         super.setUp();
+    }
+
+    function test_initialize_configSetup() virtual public {
+        assertEq(address(reserveToken), address(USDC));
+        assertEq(address(debtToken), address(debtBTC));
+        assertEq(address(borrowToken), address(BTC));
     }
 }
 
@@ -30,11 +36,17 @@ contract NNUSDCCore is NNETHCore {
     IERC20x public BTC = IERC20x(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
     IERC20x public debtBTC = IERC20x(0x59dca05b6c26dbd64b5381374aAaC5CD05644C28);
 
-    function setUp() override(NNETHBaseTest) public {
+    function setUp() override(NNETHBaseTest) virtual public {
         reserveToken = USDC;
         debtToken = debtBTC;
         borrowToken = address(BTC);
         super.setUp();
+    }
+
+    function test_initialize_configSetup() override virtual public {
+        assertEq(address(reserveToken), address(USDC));
+        assertEq(address(debtToken), address(debtBTC));
+        assertEq(address(borrowToken), address(BTC));
     }
 }
 
