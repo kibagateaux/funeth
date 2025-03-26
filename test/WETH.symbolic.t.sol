@@ -28,6 +28,7 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
 
     // @dev deposit() increases the caller's balance by exactly msg.value;
     function test_deposit_depositorBalanceUpdate(address guy, uint256 wad) public {
+        _assumeValidAddress(guy);
         uint256 balanceBefore = nnETH.balanceOf(guy);
 
         wad = _depositnnEth(guy, wad, true);
@@ -39,6 +40,7 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
 
     // @dev deposit() does not change the balance of any address besides the caller.
     function test_deposit_balancePreservation(address guy, address gal, uint256 wad) public {
+        _assumeValidAddress(guy);
         vm.assume(guy != gal);
         uint256 balanceBefore = nnETH.balanceOf(gal);
     
@@ -51,6 +53,7 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
 
     // @dev withdraw() decreases the caller's balance by exactly msg.value;
     function test_withdraw_withdrawerBalanceUpdate(address guy, uint256 wad) public {
+        _assumeValidAddress(guy);
         vm.assume(guy != address(debtToken));
         vm.assume(guy != address(nnETH.aToken()));
 
@@ -67,6 +70,7 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
 
     // @dev withdraw() does not change the balance of any address besides the caller.
     function test_withdraw_balancePreservation(address guy, address gal, uint256 wad) public {
+        _assumeValidAddress(guy);
         vm.assume(guy != gal);
         vm.assume(guy != address(debtToken));
         vm.assume(guy != address(nnETH.aToken()));
@@ -84,6 +88,7 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
 
     // @dev approve(dst, wad) sets dst allowance to wad.
     function test_approve_allowanceUpdate(address guy, address dst, uint256 wad) public {
+        _assumeValidAddress(guy);
         wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.prank(guy);
         nnETH.approve(dst, wad);
@@ -97,8 +102,10 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     function test_approve_allowancePreservation(address guy, address dst1, uint256 wad, address gal, address dst2)
         public
     {
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(guy != gal);
+        _assumeValidAddress(guy);
+
+        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
 
         uint256 allowanceBefore = nnETH.allowance(gal, dst2);
 
@@ -117,9 +124,10 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     //      - increases dst's balance by exactly wad.
     function test_transfer_balanceUpdate(address guy, address dst, uint256 wad) public {
         vm.assume(guy != dst);
+        _assumeValidAddress(guy);
+
         // vm.deal(guy, wad);
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
-        _depositnnEth(guy, wad, true);
+        wad = _depositnnEth(guy, wad, true);
 
         uint256 guyBalanceBefore = nnETH.balanceOf(guy);
         uint256 dstBalanceBefore = nnETH.balanceOf(dst);
@@ -137,12 +145,13 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     // @dev transfer(dst, wad):
     //      - does not change balance of any other address
     function test_transfer_balancePreservation(address guy, address dst, uint256 wad, address gal) public {
+        _assumeValidAddress(guy);
         vm.assume(guy != dst);
         vm.assume(guy != gal);
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
         vm.assume(dst != gal);
+
         // vm.deal(guy, wad);
-        _depositnnEth(guy, wad, true);
+        wad = _depositnnEth(guy, wad, true);
 
         uint256 galBalanceBefore = nnETH.balanceOf(gal);
 
@@ -159,12 +168,15 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     //      - increases dst's balance by exactly wad.
     function test_transferFrom_balanceUpdate(address guy, address src, address dst, uint256 wad, uint256 approval) public {
         vm.assume(src != dst);
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        _assumeValidAddress(src);
+        _assumeValidAddress(guy);
+
+        wad = _depositnnEth(src, wad, true);
         // vm.deal(src, wad);
         vm.assume(approval > wad);
         deal(address(nnETH), src, wad);
         
-        _depositnnEth(guy, wad, true);
+
         vm.prank(src);
         nnETH.approve(guy, approval);
 
@@ -186,14 +198,17 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     function test_transferFrom_balancePreservation(address guy, address src, address dst, uint256 wad, uint256 approval, address gal)
         public
     {
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        _assumeValidAddress(src);
+        _assumeValidAddress(guy);
+        _assumeValidAddress(dst);
         vm.assume(approval > wad);
         vm.assume(guy != dst);
         vm.assume(guy != gal);
         vm.assume(dst != gal);
         vm.assume(src != gal);
 
-        _depositnnEth(src, wad, true);
+        wad = _depositnnEth(src, wad, true);
+
         vm.prank(src);
         nnETH.approve(guy, approval);
 
@@ -210,13 +225,15 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     // @dev transferFrom(src, dst, wad):
     //      - decreases msg.sender's allowance by exactly wad.
     function test_transferFrom_allowanceUpdate(address guy, address src, address dst, uint256 wad, uint256 approval) public {
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        _assumeValidAddress(src);
+        _assumeValidAddress(guy);
+        _assumeValidAddress(dst);
         vm.assume(guy != src);
         vm.assume(src != dst);
         vm.assume(approval > wad);
         vm.assume(approval != type(uint256).max);
+        wad = _depositnnEth(src, wad, true);
 
-        _depositnnEth(src, wad, true);
         vm.prank(src);
         nnETH.approve(guy, approval);
 
@@ -238,12 +255,15 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     function test_transferFrom_allowanceUpdate_callerIsSrc(address guy, address src, address dst, uint256 wad, uint256 approval)
         public
     {
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        _assumeValidAddress(src);
+        _assumeValidAddress(guy);
+        _assumeValidAddress(dst);
         vm.assume(guy != src);
         vm.assume(src != dst);
         vm.assume(approval > wad);
-        // vm.deal(guy, wad);
-        _depositnnEth(guy, wad, true);
+
+        wad = _depositnnEth(src, wad, true);
+
         vm.prank(src);
         nnETH.approve(guy, approval);
 
@@ -251,7 +271,7 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
         vm.assume(guyAllowanceBefore != type(uint256).max);
 
         vm.prank(guy);
-        nnETH.transferFrom(guy, dst, wad);
+        nnETH.transferFrom(src, dst, wad);
 
         uint256 guyAllowanceAfter = nnETH.allowance(guy, guy);
 
@@ -263,12 +283,13 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
     function test_transferFrom_allowanceUpdate_maxAllowance(address guy, address src, address dst, uint256 wad)
         public
     {
-        wad = bound(wad, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT);
+        _assumeValidAddress(src);
+        _assumeValidAddress(guy);
+
+        wad = _depositnnEth(src, wad, true);
+
         vm.assume(src != dst);
-        // vm.deal(src, wad);
-        deal(address(nnETH), src, wad);
-        
-        _depositnnEth(guy, wad, true);
+
         vm.startPrank(src);
         nnETH.approve(guy, type(uint256).max);
         vm.stopPrank();

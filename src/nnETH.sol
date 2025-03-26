@@ -5,18 +5,18 @@ import {INNETH, IERC20x, IAaveMarket, ReserveData} from "./Interfaces.sol";
 
 contract NNETH is INNETH {
     // Multisig deployed on Mainnet, Arbitrum, Base, OP,
+    // TODO rename FUN_TREASURY
     address public constant ZU_CITY_TREASURY = address(0xC958dEeAB982FDA21fC8922493d0CEDCD26287C3);
     uint64 public constant MIN_DEPOSIT = 100_000_000; // to prevent aave math from causing reverts on small amounts from rounding decimal diffs. $100 USDC or 0.5 ETH ETH
     // TODO figure out lowest amount where aave tests dont fail
     // uint256 public constant MIN_DEPOSIT = 100; // to prevent aave math from causing reverts on small amounts. $100 USDC or 1e-9 ETH
-    
+
     /// @notice min health factor for user to redeem to prevent malicious liquidations. 2 = Redeems until debt = 50% of nnETH TVL
     uint8 public constant MIN_REDEEM_FACTOR = 2;
     /// @notice min health factor for treasury to pull excess interest. 8 = ~12% of total nnETH TVL can be delegated
     uint8 public constant MIN_RESERVE_FACTOR = 8;
     /// @notice used to convert AAVE LTV to HF calc
     uint16 public constant BPS_COEFFICIENT = 1e4;
-
 
     string public name;
     string public symbol;
@@ -47,7 +47,7 @@ contract NNETH is INNETH {
     ///@notice who deposited, how much, where they want yield directed, who recruited mate
     event Deposit(address indexed mate, address indexed receiver, uint256 dubloons, address indexed city, address referrer);
     ///@notice who withdrew, how much
-    event Withdrawal(address indexed me, uint256 dubloons);
+    event Withdrawal(address indexed me, address indexed to, uint256 dubloons);
     ///@notice where we are farming, what token, how much was deposited
     event Farm(address indexed market, address indexed reserve, uint256 dubloons);
     ///@notice where yield was sent to, how much
@@ -58,7 +58,9 @@ contract NNETH is INNETH {
     error AlreadyInitialized();
     error UnsupportedChain();
     error InvalidReserveMarket();
-    error InvalidTokens();
+    error InvalidToken();
+    error InvalidReceiver();
+    error InsufficientBalance();
     error BelowMinDeposit();
     error NotEthReserve();
     error NotnnCity();
@@ -75,47 +77,7 @@ contract NNETH is INNETH {
     // TODO easier to enfore loans within the contract e.g. nnETH.borrow()instead of delegated credit
     mapping(address => uint256) public credited; // TODO? make City struct with creditedUSDC + delegatedETH
 
-    // TODO if delegated credit doesnt work just track everything in this contract. maznn
-    // struct Loan {
-    //     uint256 totalCredit; // total credit extended to city. revolving.
-    //     uint256 currentDebt; // includes principal + all interest accrued up until lastLiquidityIndex
-    //     uint256 lastLiquidityIndex; // last time loan was updated
-    // }
-    // mapping(address => Loan) public cityLoans;
-    //     function borrow(address city, uint256 amount) public {
-    //     if(cityLoans[city].totalCredit == 0) revert NoCredit();
-    //     if(msg.sender != city) revert NotnnCity();
-    //     (,,,,,,,, uint256 liquidityIndex, uint256 variableBorrowIndex,,,,, , , , ) = IAaveDataProvider(aaveDataProvider).getReserveData(address(debtToken));
-
-    //     cityLoans[city].currentDebt += amount;
-    //     cityLoans[city].lastLiquidityIndex = liquidityIndex;
-    //     aaveMarket.borrow(address(debtToken), amount, 2, 200, address(this));
-    //     debtToken.transfer(city, amount);
-    // }
-
-
-    // function repay(address city, uint256 amount) external {
-    //     (,,,,,,,, uint256 liquidityIndex, uint256 variableBorrowIndex,,,,, , , , ) = IAaveDataProvider(aaveDataProvider).getReserveData(asset);
-    //     uint256 lastIndex = userDebtInfo[user][asset].lastBorrowIndex;
-    //     uint256 currentPrincipal = userDebtInfo[user][asset].principalDebt;
-
-    //     // Simplified interest calculation (needs refinement based on Aave's formula)
-    //     uint256 interestAccrued = (currentPrincipal * (variableBorrowIndex - lastIndex)) / lastIndex;
-
-    //     // Update principal after repaying (ignoring interest in this simplified example)
-    //     userDebtInfo[user][asset].principalDebt -= amount;
-    //     userDebtInfo[user][asset].lastBorrowIndex = variableBorrowIndex;
-    // }
-
-    // function repayWithAToken(uint256 amount, address city) public {
-        // deposit all debt tokens sent to contract accidently to repay debt
-        // aaveMarket.supply(address(debtToken), amount, address(this), 200);
-        // aToken.transferFrom(msg.sender, address(this), amount);
-        // aaveMarket.repay(address(debtToken), amount, 2, 200, address(this));
-    // }
-
-
-    function initialize(address _reserveToken, address market, address _debtToken, uint8 eMode, string memory _name, string memory _sym) public {
+    function initialize(address _reserveToken, address market, address _debtToken, string memory _name, string memory _sym) public {
         if(address(reserveToken) != address(0)) revert AlreadyInitialized();
         
         // naive check if nnCity governance is deployed on this chain
@@ -132,7 +94,7 @@ contract NNETH is INNETH {
         aToken = IERC20x(pool.aTokenAddress);
         debtToken = IERC20x(_debtToken);
 
-        // Aave docs say eMode must be the same for delegator + borrower. Evidently not true and 0 is fine too.
+        // Aave docs say eMode must be the same for delegator + borrower. 0 = none is fine.
         // aaveMarket.setUserEMode(eMode);
 
         reserveToken.approve(address(aaveMarket), type(uint256).max);
@@ -146,6 +108,7 @@ contract NNETH is INNETH {
             reserveVsATokenDecimalOffset = 10**(aTokenDecimals - reserveDecimals);
         }
         
+        // assumes aave debt token decimals = actual debt asset token decimals
         try debtToken.decimals() returns (uint8 dec) {
             debtTokenDecimals = dec;
             return;
@@ -160,25 +123,32 @@ contract NNETH is INNETH {
 
 
     function deposit(uint256 dubloons) public {
-        _deposit(msg.sender, dubloons, address(ZU_CITY_TREASURY), address(this));
+        _deposit(msg.sender, msg.sender, dubloons, address(ZU_CITY_TREASURY), address(this));
     }
 
-    function depositWithPreference(address to, uint256 dubloons, address city, address referrer) public {
-        _deposit(to, dubloons, city, referrer);
+    function depositOnBehalfOf(uint256 dubloons, address to, address referrer) public {
+        _deposit(msg.sender, to, dubloons, address(ZU_CITY_TREASURY), referrer);
+    }
+
+    function depositWithPreference(uint256 dubloons, address city, address referrer) public {
+        _deposit(msg.sender, msg.sender, dubloons, city, referrer);
     }
     
     /// @notice helper function for integrators e.g. LP farming to simplify UX
     function depositAndApprove(address spender, uint256 dubloons) public {
-        _deposit(msg.sender, dubloons, address(ZU_CITY_TREASURY), address(this));
+        _deposit(msg.sender, msg.sender, dubloons, address(ZU_CITY_TREASURY), address(this));
         approve(spender, dubloons);
     }
 
-    function _deposit(address receiver, uint256 dubloons, address city, address referrer) public {
+    function _deposit(address owner, address receiver, uint256 dubloons, address city, address referrer) public {
+        if(receiver == address(0)) revert InvalidReceiver();
         if(dubloons < MIN_DEPOSIT) revert BelowMinDeposit();
-        reserveToken.transferFrom(msg.sender, address(this), dubloons);
+        
+        reserveToken.transferFrom(owner, address(this), dubloons);
         farm(reserveToken.balanceOf(address(this))); // scoop tokens sent directly too
         mint(receiver, dubloons);
-        emit Deposit(msg.sender, receiver, dubloons, city, referrer);
+        
+        emit Deposit(owner, receiver, dubloons, city, referrer);
     }
 
     function mint(address to, uint256 dubloons) private {
@@ -187,21 +157,35 @@ contract NNETH is INNETH {
     }
 
     function farm(uint256 dubloons) public {
-        // token approval in constructor and pullReserves
+        // token approval in pullReserves
         aaveMarket.supply(address(reserveToken), dubloons, address(this), 200); // 200 = referall code. l33t "Zoo" 
 
         emit Farm(address(aaveMarket), address(reserveToken), dubloons);
     }
 
     function withdraw(uint256 dubloons) public {
-        balanceOf[msg.sender] -= dubloons;
-        totalSupply -= dubloons;
+        _withdraw(msg.sender, msg.sender, dubloons);
+    }
 
-        aaveMarket.withdraw(address(reserveToken), dubloons, msg.sender);
+    function withdrawTo(uint256 dubloons, address to) public {
+        _withdraw(msg.sender, to, dubloons);
+    }
+
+
+    function burn(address from, uint256 dubloons) private {
+        balanceOf[from] -= dubloons;
+        totalSupply -= dubloons;
+    }
+
+    function _withdraw(address owner, address to, uint256 dubloons) internal {
+        burn(owner, dubloons);
+
+        aaveMarket.withdraw(address(reserveToken), dubloons, to);
         
+        // check *after* withdrawing and aave updates collateral balance
         if(getExpectedHF() < MIN_REDEEM_FACTOR) revert MaliciousWithdraw();
 
-        emit Withdrawal(msg.sender, dubloons);
+        emit Withdrawal(owner, to, dubloons);
     }
 
     function approve(address mate, uint256 dubloons) public returns (bool) {
@@ -215,7 +199,8 @@ contract NNETH is INNETH {
     }
 
     function transferFrom(address me, address mate, uint256 dubloons) public returns (bool) {
-        require(balanceOf[me] >= dubloons);
+        // for sym test. could remove and revert on balanceOf check math
+        if(balanceOf[me] < dubloons) revert InsufficientBalance();
 
         if (me != msg.sender && allowance[me][msg.sender] != type(uint256).max) {
             require(allowance[me][msg.sender] >= dubloons);
@@ -230,7 +215,7 @@ contract NNETH is INNETH {
         return true;
     }
     
-    // nnETH Treasury functions
+    /* nnETH Treasury functions */
 
     function _assertTreasury() internal view {
         if(msg.sender != ZU_CITY_TREASURY) revert NotnnCity();
@@ -240,7 +225,6 @@ contract NNETH is INNETH {
         if(totalSupply > underlying()) revert InsufficientReserves();
         if(getExpectedHF() < MIN_RESERVE_FACTOR) revert CreditRisk();
     }
-
 
     function pullReserves(uint256 dubloons) public {
         _assertTreasury();
@@ -256,7 +240,6 @@ contract NNETH is INNETH {
         emit PullReserves(msg.sender, dubloons);
     }
 
-
     /**
      * @notice Allow projects to borrow against nnCity collateral with Aave credit delegation.
         Technically this will almost always make us frational reserve. 
@@ -268,6 +251,13 @@ contract NNETH is INNETH {
         _assertTreasury();
 
         uint256 currentCredit = credited[city];
+        // type shit would be SOOOO smart to
+        // deploy an RSA and have onchain interest + repayment tracking
+        // currentCredit -> RSA address. Keep totalCreditDelegated for HF
+        // would be simpler if zucitytreasury gets debtTokens to trade back to reserveToken but less automated/trustless
+        // would require cowswap integration inside this contract and tracking actual debt asset not just aave debtToken
+        // e.g. debtAssetToReserveToken(). _assertZuCity, trade(debtAsset, balanceOf(debtAsset), reserveToken, min = price(DebtAsset) / price(reserveToken))
+
         credited[city] = dubloons;
         if(currentCredit > dubloons) {
             // new credit rating lower than before so reduce total
@@ -290,12 +280,14 @@ contract NNETH is INNETH {
     /// @notice returns worst case scenario health factor if all credit extended is borrowed at the same time
     function getExpectedHF() public view returns (uint8) {
         // ideally use liquidationThreshold not ltv but aave uses ltv for "borrowable" amount so would make tests messier
-        (uint256 totalCollateralBase,uint256 totalDebtBase,,, uint256 ltv, uint256 hf) = aaveMarket.getUserAccountData(address(this));
+        (uint256 totalCollateralBase, uint256 totalDebtBase,,, uint256 ltv, uint256 hf) = aaveMarket.getUserAccountData(address(this));
 
         // aave assumes debt amount is usd in 8 decimals. convert debt token decimals to match
         // https://github.com/aave-dao/aave-v3-origin/blob/a0512f8354e97844a3ed819cf4a9a663115b8e20/src/contracts/protocol/libraries/logic/LiquidationLogic.sol#L72
         // Assumes we only allow stablecoins for borrowing so 1 totalDelegatedCredit = 1 USD
         // Also assumes debtToken decimals = actual token decimals
+
+        // TODO update to use price(reserveToken) * totalCreditDelegated and debtTokenDecimals + 8 (price decimals)
         uint256 scaledDelegatedCredit = convertToDecimal(totalCreditDelegated, debtTokenDecimals, 8);
 
         // This fails if we have debt > credit delegated e.g. interest or price increase since delegation
@@ -308,17 +300,16 @@ contract NNETH is INNETH {
         uint256 unborrowedDebt = totalDebtBase > scaledDelegatedCredit ? totalDebtBase : scaledDelegatedCredit - totalDebtBase;
         uint256 maxDebt = totalDebtBase + unborrowedDebt;
 
-        if (maxDebt == 0) {
-            // Avoid division by zero
-            return uint8(convertToDecimal(hf, 18, 2)); // returns 100
-        }
+        // Avoid division by zero
+        if (maxDebt == 0) return uint8(convertToDecimal(hf, 18, 2)); // returns 100
+        // max debt borrowed already
+        if (unborrowedDebt == totalDebtBase) return uint8(convertToDecimal(hf, 18, 0)); // returns 100
 
-        uint256 maxBorrowedHF = (totalCollateralBase * ltv) / maxDebt / BPS_COEFFICIENT;
-
+        uint256 maxBorrowedHF = ((totalCollateralBase * ltv) / maxDebt / BPS_COEFFICIENT);
         return uint8(maxBorrowedHF);
     }
 
-    /// Getter functions 
+    /// Helper functions 
 
     /// @notice total amount of tokens deposited in aave. Denominated in reserrveToken decimals
     function underlying() public view returns (uint256) {
@@ -330,36 +321,22 @@ contract NNETH is INNETH {
         return underlying() - totalSupply - 1; // -1 to account for rounding errors in aave
     }
 
-    /// @notice returns current health factor disregarding future potential debt from NN loans
-    function getHF() public view returns (uint256) {
-        (,,,,,uint256 healthFactor) = aaveMarket.getUserAccountData(address(this));
-        return convertToDecimal(healthFactor, 18, 2);
-    }
-
-    function getDebt() public view returns (uint256) {
-        (,uint256 debt,,,,) = aaveMarket.getUserAccountData(address(this));
-        return convertToDecimal(debt, 8, debtTokenDecimals);
-    }
-
-    function getAvailableCredit() public view returns (uint256) {
-        (,,uint256 creditLeft,,,) = aaveMarket.getUserAccountData(address(this));
-        return convertToDecimal(creditLeft, 8, debtTokenDecimals);
-    }
-
-    function getTotalCredit() public view returns (uint256) {
-        (,uint256 debt, uint256 creditLeft,,,) = aaveMarket.getUserAccountData(address(this));
-        return convertToDecimal(debt + creditLeft, 8, debtTokenDecimals);
-    }
-
-    function getCityCredit(address city) public view returns (uint256) {
-        return debtToken.borrowAllowance(address(this), city);
-    }
-
     /// @notice returns price of asset in USD 8 decimals from Aave/Chainlink oracles   
+    /// @dev Assumes Aave only uses USD price oracles. e.g. not stETH/ETH but shouldnt be relevant for simple assets
     function price(address asset) public returns (uint256 usdPrice) {
         (, bytes memory data) = IAaveMarket(aaveMarket.ADDRESSES_PROVIDER()).getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", asset));
         assembly {
             usdPrice := mload(add(data, 32))
+        }
+    }
+
+    function recoverTokens(address token) public {
+        if(token == address(aToken)) revert InvalidToken();
+        // TODO add debtAsset once we add RSA
+        if(token == address(0)) {
+            ZU_CITY_TREASURY.call{value: address(this).balance}("");
+        } else {
+            IERC20x(token).transfer(ZU_CITY_TREASURY, IERC20x(token).balanceOf(address(this)));
         }
     }
 
@@ -378,14 +355,5 @@ contract NNETH is INNETH {
         } else {
             return amount * 10**(targetDecimals - currentDecimals);
         }
-    }
-
-    receive() external payable {
-        if(msg.value < MIN_DEPOSIT) revert BelowMinDeposit();
-        // assumes reserveToken is ETH. reverts on deposit/farm if not
-
-        reserveToken.deposit{value: msg.value}();
-        farm(msg.value);
-        mint(msg.sender, msg.value);
     }
 }

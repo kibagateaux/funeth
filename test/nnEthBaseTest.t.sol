@@ -13,26 +13,28 @@ contract NNETHBaseTest is Test {
     IERC20x public debtWETH = IERC20x(0x24e6e0795b3c7c71D965fCc4f371803d1c1DcA1E);
     IERC20x public USDC = IERC20x(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
     IERC20x public debtUSDC = IERC20x(0x59dca05b6c26dbd64b5381374aAaC5CD05644C28);
+    // GHO fails on decimals() call in initialize()
+    // IERC20x public GHO = IERC20x(0x6Bb7a212910682DCFdbd5BCBb3e28FB4E8da10Ee);
+    // IERC20x public debtGHO = IERC20x(0x38e59ADE183BbEb94583d44213c8f3297e9933e9);
+    // BTC doesnt get set properly in testing .initialize() for some reason
+    IERC20x public BTC = IERC20x(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
+    IERC20x public debtBTC = IERC20x(0x59dca05b6c26dbd64b5381374aAaC5CD05644C28);
+
     
     IAaveMarket public aaveBase = IAaveMarket(0xA238Dd80C259a72e81d7e4664a9801593F98d1c5);
     uint256 public MAX_AAVE_DEPOSIT = 1000 ether; // TODO get supply cap for Aave on network
     uint256 public MAX_AAVE_DEPOSIT_USDC = 2000 gwei; // TODO get supply cap for Aave on network
 
-    uint8 aaveEMode = 0;
-    
     // chain agnostic test variables
     IERC20x public reserveToken = WETH;
     IERC20x public debtToken = debtUSDC;
     address public borrowToken = address(USDC);
-    // IERC20x public debtToken = debtGHO;
-    // address public borrowToken = address(GHO);
     IAaveMarket public aave = aaveBase;
 
     uint256 private baseFork;
 
     function setUp() virtual public {
         baseFork = vm.createSelectFork(vm.rpcUrl('base'), 23_502_225);
-        // baseFork = vm.createSelectFork(vm.rpcUrl('base'), 27598416);
 
         nnETH = new NNETH();
 
@@ -41,18 +43,39 @@ contract NNETHBaseTest is Test {
         (,bytes memory data2) = address(borrowToken).call(abi.encodeWithSignature("symbol()"));
         emit log_named_string  ("debt asset symbol", abi.decode(data2, (string)));
 
+        nnETH.initialize(address(reserveToken), address(aave), address(debtToken), "nnCity Ethereum", "nnETH");
+    }
 
-        // 1 = ETHLIKE. Aave on Base does not have stablecoin eMode, only ETH.
-        nnETH.initialize(address(reserveToken), address(aave), address(debtToken), aaveEMode, "nnCity Ethereum", "nnETH");
+    function _assumeValidAddress(address target) internal {
+        //  addresses that will throw errors or miscalculations during testing
+        vm.assume(address(0) != target);
+        vm.assume(target != nnETH.ZU_CITY_TREASURY()); // maybe dont want this here
+        vm.assume(target != address(aave));
+        vm.assume(address(nnETH.aToken()) != target);
+        vm.assume(address(WETH) != target);
+        vm.assume(address(debtWETH) != target);
+        vm.assume(address(USDC) != target);
+        vm.assume(address(debtUSDC) != target);
+        vm.assume(address(0x3ABd6f64A422225E61E435baE41db12096106df7) != target); // proxy admin. throws if USDC called by them.
+        vm.assume(address(BTC) != target);
+        vm.assume(address(debtBTC) != target);
+    }
+
+    function _boundDepositAmount(uint256 initial, bool borrowable) internal returns (uint256) {
+        uint256 min;
+        // give enough deposit that collateral value lets us borrow at least 1 unit of debt token
+        if(borrowable) min = reserveToken.decimals() == 18 ? 10 ether : 100_000_000;
+        else min = nnETH.MIN_DEPOSIT();
+        uint256 max = reserveToken.decimals() == 18 ? MAX_AAVE_DEPOSIT : MAX_AAVE_DEPOSIT_USDC;
+        return bound(
+            initial,
+            min,// prevent decimal rounding errors on aave protocol
+            max // prevent max supply reverts on Aave
+        ); 
     }
 
     function _depositnnEth(address user, uint256 amount) internal returns (uint256 deposited) {
-        deposited = bound(
-            amount,
-            nnETH.MIN_DEPOSIT(),// prevent decimal rounding errors on aave protocol
-            // prevent max supply reverts on Aave
-            reserveToken.decimals() == 18 ? MAX_AAVE_DEPOSIT : MAX_AAVE_DEPOSIT_USDC
-        ); 
+        deposited = _boundDepositAmount(amount, false);
 
         vm.startPrank(user);
         nnETH.reserveToken().approve(address(nnETH), deposited);
@@ -63,13 +86,7 @@ contract NNETHBaseTest is Test {
     /// @notice ensure enough collateral so we have credit > 0 so borrow() calls dont fail on 0.
     function _depositForBorrowing(address user, uint256 amount) internal returns (uint256 deposited) {
         vm.assume(user != address(0));
-        deposited = bound(
-            amount,
-            // higher min prevents decimal rounding errors btw price feed + tokens during testing
-            reserveToken.decimals() == 18 ? 10 ether : 100_000_000,
-            // prevent max supply reverts on Aave
-            reserveToken.decimals() == 18 ? MAX_AAVE_DEPOSIT : MAX_AAVE_DEPOSIT_USDC
-        );
+        deposited = _boundDepositAmount(amount, true);
 
         deal(address(nnETH.reserveToken()), user, deposited);
 
@@ -81,8 +98,7 @@ contract NNETHBaseTest is Test {
 
     function _depositnnEth(address user, uint256 amount, bool mint) internal returns (uint256 deposited) {
         vm.assume(user != address(0));
-        deposited = bound(amount, nnETH.MIN_DEPOSIT(), MAX_AAVE_DEPOSIT); // prevent min/max supply reverts on Aave
-
+        deposited = _boundDepositAmount(amount, false);
         if(mint) deal(address(nnETH.reserveToken()), user, deposited);
         return _depositnnEth(user, deposited);
     }
@@ -122,7 +138,7 @@ contract NNETHBaseTest is Test {
             price := mload(add(data, 32))
         }
         
-        emit log_named_uint("price", price);
+        emit log_named_uint("reserveToken price (8 dec)", price);
 
         aaveTotalCredit = (nnethSupply * ltvConfig * price)
             / 1e4 // ltv bps offset

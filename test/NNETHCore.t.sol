@@ -54,7 +54,7 @@ contract NNETHCore is NNETHBaseTest {
 
     function test_initialize_cantReinitialize() public {
         vm.expectRevert(NNETH.AlreadyInitialized.selector);
-        nnETH.initialize(address(WETH), address(aave), address(debtToken), 1, "nnCity Ethereum", "nnETH");
+        nnETH.initialize(address(reserveToken), address(aave), address(debtToken), "nnCity Ethereum", "nnETH");
     }
 
     function test_initialize_setsProperDepositToken() public view {
@@ -68,14 +68,121 @@ contract NNETHCore is NNETHBaseTest {
         }
     }
 
+    function test_deposit_revertsOn0AddressReceiver(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+        vm.prank(user);
+        reserveToken.approve(address(nnETH), amount);
+        
+        vm.prank(user);
+        vm.expectRevert(NNETH.InvalidReceiver.selector);
+        nnETH.depositOnBehalfOf(amount, address(0), makeAddr("boogawugi"));
+    }
+
+    function test_deposit_revertsOnBelowMinDeposit(address user, uint256 amount) public {
+        vm.assume(amount < nnETH.MIN_DEPOSIT());
+        _assumeValidAddress(user);
+        
+        vm.prank(user);
+        reserveToken.approve(address(nnETH), amount);
+        
+        vm.prank(user);
+        vm.expectRevert(NNETH.BelowMinDeposit.selector);
+        nnETH.deposit(amount);
+    }
+    
+    function test_deposit_emitsProperEvent(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+        
+        uint256 n = _boundDepositAmount(amount, false);
+        deal(address(reserveToken), user, n);
+
+        vm.startPrank(user);
+        reserveToken.approve(address(nnETH), n);
+        
+        vm.expectEmit(true, true, true, true);
+        emit NNETH.Deposit(user, user, n, nnETH.ZU_CITY_TREASURY(), address(nnETH));
+        nnETH.deposit(n);
+        vm.stopPrank();
+    }
+
+    function test_depositOnBehalfOf_emitsProperEvent(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+        
+        uint256 n = _boundDepositAmount(amount, false);
+        deal(address(reserveToken), user, n);
+        
+        vm.startPrank(user);
+        reserveToken.approve(address(nnETH), n);
+        
+        vm.expectEmit(true, true, true, true);
+        emit NNETH.Deposit(user, makeAddr("boogawugi"), n, nnETH.ZU_CITY_TREASURY(), address(0xbeef));
+        nnETH.depositOnBehalfOf(n, makeAddr("boogawugi"), address(0xbeef));
+        vm.stopPrank();
+    }
+
+    function test_depositOnBehalfOf_updatesProperRecipient(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+        
+        uint256 n = _boundDepositAmount(amount, false);
+        deal(address(reserveToken), user, n);
+        
+        vm.startPrank(user);
+        reserveToken.approve(address(nnETH), n);
+        nnETH.depositOnBehalfOf(n, address(0xbeef), makeAddr("boogawugi"));
+        vm.stopPrank();
+
+        assertEq(nnETH.balanceOf(user), 0);
+        assertEq(nnETH.balanceOf(address(0xbeef)), n);
+    }
+
+    function test_depositWithPreference_emitsProperEvent(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+        uint256 n = _boundDepositAmount(amount, false);
+        deal(address(reserveToken), user, n);
+
+        vm.startPrank(user);
+        reserveToken.approve(address(nnETH), n);
+        
+        vm.expectEmit(true, true, true, true);
+        emit NNETH.Deposit(user, user, n, nnETH.ZU_CITY_TREASURY(), address(0xbeef));
+        nnETH.depositWithPreference(n, nnETH.ZU_CITY_TREASURY(), address(0xbeef));
+        vm.stopPrank();
+    }
+
+    function test_depositAndApprove_emitsProperEvent(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+        uint256 n = _boundDepositAmount(amount, false);
+        deal(address(reserveToken), user, n);
+        
+        vm.startPrank(user);
+        reserveToken.approve(address(nnETH), n);
+        
+        vm.expectEmit(true, true, true, true);
+        emit NNETH.Deposit(user, user, n, nnETH.ZU_CITY_TREASURY(), address(nnETH));
+        nnETH.depositAndApprove(address(0xbeef), n);
+        vm.stopPrank();
+    }
+
+    function test_depositAndApprove_updatesAllowance(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+        uint256 n = _boundDepositAmount(amount, false);
+        deal(address(reserveToken), user, n);
+        vm.startPrank(user);
+        reserveToken.approve(address(nnETH), n);
+        nnETH.depositAndApprove(address(0xbeef), n);
+        vm.stopPrank();
+        assertEq(nnETH.allowance(user, address(0xbeef)), n);
+    }
+
     function test_pullReserves_revertNotnnCityTreasury(address caller, uint256 amount) public {
         vm.assume(caller != nnETH.ZU_CITY_TREASURY());
-        vm.expectRevert(NNETH.NotnnCity.selector);
         vm.prank(caller);
+        vm.expectRevert(NNETH.NotnnCity.selector);
         nnETH.pullReserves(amount);
     }
 
     function test_pullReserves_onlynnCityTreasury(address depositor, address rando) public {
+        _assumeValidAddress(rando);
         vm.assume(rando != nnETH.ZU_CITY_TREASURY());
 
         // auth should work on 0 yield, 0 deposits
@@ -188,13 +295,13 @@ contract NNETHCore is NNETHBaseTest {
     function test_pullReserves_revertOverDebtRatio(address depositor, uint256 amount) public {
         uint256 n = _depositForBorrowing(depositor, amount);
         (, uint256 borrowable) = _borrowable(n);
-        if(depositor == address(0x0)) return;
-        if(borrowable < 1000) return;
+        _assumeValidAddress(depositor);
+        // if(borrowable < 1000) return;
 
         vm.prank(address(nnETH));
-        debtToken.approveDelegation(depositor, n);
+        debtToken.approveDelegation(depositor, n); // outside NNETH so doesnt affect getExpectedHF until borrow
         vm.prank(depositor);
-        aave.borrow(borrowToken, (borrowable * 2), 2, 200, address(nnETH));
+        aave.borrow(borrowToken, borrowable * 2, 2, 200, address(nnETH));
 
         uint256 totalUnderlying = nnETH.underlying();
         uint256 unhealthyHF = nnETH.getExpectedHF();
@@ -212,7 +319,9 @@ contract NNETHCore is NNETHBaseTest {
     }
 
     function test_lend_borrowFailsIfOverDebtRatio(address city, uint256 _deposit) public {
-        uint256 deposit = _depositForBorrowing(address(0xdead), _deposit);
+        _assumeValidAddress(city);
+
+        uint256 deposit = _depositForBorrowing(makeAddr("boogawugi"), _deposit);
         (uint256 delegatedCredit, uint256 borrowable) = _borrowable(deposit);
         
         _lend(city, borrowable);
@@ -224,7 +333,7 @@ contract NNETHCore is NNETHBaseTest {
         (,,uint256 availableBorrow,,uint256 ltv,uint256 hf) = aave.getUserAccountData(address(nnETH));
         assertGe(hf, nnETH.MIN_RESERVE_FACTOR());
 
-        uint256 debtBalance1 = nnETH.getDebt();
+        // uint256 debtBalance1 = nnETH.getDebt();
         // vm.expectRevert(bytes(AaveErrors.COLLATERAL_CANNOT_COVER_NEW_BORROW), address(aave));
         vm.expectRevert();
         aave.borrow(borrowToken, availableBorrow > 100 ? availableBorrow / 1e2 + 1 : 1, 2, 200, address(nnETH)); // 1 wei over target LTV should revert
@@ -232,17 +341,18 @@ contract NNETHCore is NNETHBaseTest {
         // LTV still above target
         (,,uint256 availableBorrow2,,uint256 ltv2,uint256 hf2) = aave.getUserAccountData(address(nnETH));
         assertGe(nnETH.convertToDecimal(hf2, 18, 2), nnETH.MIN_RESERVE_FACTOR());
-        assertEq(nnETH.getDebt(), debtBalance1);
+        // assertEq(nnETH.getDebt(), debtBalance1);
         vm.stopPrank();
     }
 
     function test_withdraw_redeemBelowReserveFactor(address user, uint256 amount) public {
+        _assumeValidAddress(user);
         uint256 n = _depositForBorrowing(user, amount);
         (, uint256 borrowable) = _borrowable(n);
         vm.warp(block.timestamp + 888);
         vm.prank(nnETH.ZU_CITY_TREASURY());
-        nnETH.lend(address(0xdead), borrowable); 
-        
+        nnETH.lend(makeAddr("boogawugi"), borrowable); 
+
         uint256 safeWithdraw = (n * 3) / 4;
         vm.prank(user);
         // should be able withdraw more than reserve factor, less than redeem factor
@@ -253,22 +363,46 @@ contract NNETHCore is NNETHBaseTest {
     }
 
     function test_withdraw_revertOnMaliciousWithdraws(address user, uint256 amount) public {
-        vm.assume(user != address(debtToken));
-        vm.assume(user != address(nnETH.aToken()));
+        _assumeValidAddress(user);
 
         uint256 n = _depositForBorrowing(user, amount);
         (, uint256 borrowable) = _borrowable(n);
         vm.warp(block.timestamp + 888);
 
         vm.prank(nnETH.ZU_CITY_TREASURY());
-        nnETH.lend(address(0xdead), borrowable); 
+        nnETH.lend(makeAddr("boogawugi"), borrowable); 
 
         assertGe(nnETH.getExpectedHF(), nnETH.MIN_REDEEM_FACTOR());
 
         vm.expectRevert(NNETH.MaliciousWithdraw.selector);
         _withdrawnnEth(user, n);
-
+        makeAddr("boogawugi");
         // still above min redeem factor bc withdraw failed
         assertGe(nnETH.getExpectedHF(), nnETH.MIN_REDEEM_FACTOR());
+    }
+
+    function test_withdrawTo_updatesProperBalances(address user, uint256 amount) public {
+        _assumeValidAddress(user);
+
+        uint256 n = _depositnnEth(user, amount, true);
+        assertEq(nnETH.balanceOf(user), n);
+        emit log_named_uint("recipient init balance ", nnETH.balanceOf(makeAddr("boogawugi")));
+        assertEq(nnETH.balanceOf(makeAddr("boogawugi")), 0);
+        assertEq(reserveToken.balanceOf(user), 0);
+        emit log_named_uint("recipient init balance ", reserveToken.balanceOf(makeAddr("boogawugi")));
+        assertEq(reserveToken.balanceOf(makeAddr("boogawugi")), 0);
+
+        uint256 withdrawn = n / 2;
+        vm.prank(user);
+        nnETH.withdrawTo(withdrawn, makeAddr("boogawugi"));
+
+        emit log_named_uint("user remaining balance ", nnETH.balanceOf(user));
+        assertEq(reserveToken.balanceOf(user), 0);
+        assertEq(nnETH.balanceOf(user), n - withdrawn);
+
+        emit log_named_address("reserve token ", address(reserveToken));
+        assertEq(reserveToken.balanceOf(makeAddr("boogawugi")), withdrawn);
+        emit log_named_uint("recipient remaining balance ", nnETH.balanceOf(makeAddr("boogawugi")));
+        assertEq(nnETH.balanceOf(makeAddr("boogawugi")), 0);
     }
 }

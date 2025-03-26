@@ -1,5 +1,7 @@
 pragma solidity ^0.8.26;
 
+/* General */
+
 interface IERC20 {
     function totalSupply() external view returns(uint256);
     function decimals() external view returns(uint8);
@@ -17,6 +19,79 @@ interface IERC20x is IERC20 {
     function scaledBalanceOf(address mate) external view returns(uint256);
     function approveDelegation(address mate,uint256 dubloons) external;
     function borrowAllowance(address guarantor, address debtor) external view returns (uint256); //to - value
+}
+
+/* NN Core */
+interface INNETH is IERC20 {
+    function initialize(address _reserveToken, address market, address _debtToken, string memory _name, string memory _sym) external;
+
+    // basic getters
+    function reserveToken() external returns(IERC20x);
+    function aaveMarket() external returns(IAaveMarket);
+    function aToken() external returns(IERC20x);
+    function debtToken() external returns(IERC20x);
+    
+    // Treasuer functions
+    function lend(address mate, uint256 dubloons) external;
+    function pullReserves(uint256 dubloons) external;
+
+    // WETH functionality
+    function deposit(uint256 dubloons) external;
+    function depositAndApprove(address spender, uint256 dubloons) external;
+    function depositOnBehalfOf(uint256 dubloons, address receiver, address referrer) external;
+    function depositWithPreference(uint256 dubloons, address city, address referrer) external;
+    function withdraw(uint256 dubloons) external;
+    function withdrawTo(uint256 dubloons, address to) external;
+
+    // aave integrations
+    function farm(uint256 dubloons) external;
+    function underlying() external returns(uint256);
+    function getYieldEarned() external returns(uint256);
+    function getExpectedHF() external returns(uint8);
+    function price(address asset) external returns(uint256);
+
+    // function getAvailableCredit() external returns(uint256);
+    // function getTotalCredit() external returns(uint256);
+    // function getDebt() external returns(uint256);
+    // function getHF() external returns(uint256);
+
+}
+
+interface IRevenueShareAgreement {
+    error AlreadyInitialized();
+    function initialize(address _borrower, address _creditToken, uint8 _lenderRevenueSplit, uint256 _initialPrincipal, uint256 _totalOwed, string memory _name, string memory _sym) external;
+}
+
+
+interface IFeeClaimer {
+    function claimFees(
+        address revenueContract,
+        address token,
+        bytes calldata data
+    ) external returns (uint256 claimed);
+    function operate(address revenueContract, bytes calldata data) external returns (bool);
+
+    // owner funcs
+    function claimOwnerTokens(address token) external returns (uint256 claimed);
+    function claimOperatorTokens(address token) external returns (uint256 claimed);
+    // function addSpigot(address revenueContract, Setting memory setting) external returns (bool);
+    function removeSpigot(address revenueContract) external returns (bool);
+
+    // stakeholder funcs
+    function updateOwnerSplit(address revenueContract, uint8 ownerSplit) external returns (bool);
+    function updateOwner(address newOwner) external returns (bool);
+    function updateOperator(address newOperator) external returns (bool);
+    function updateWhitelistedFunction(bytes4 func, bool allowed) external returns (bool);
+
+    // Getters
+    function owner() external view returns (address);
+    function operator() external view returns (address);
+    function isWhitelisted(bytes4 func) external view returns (bool);
+    function getOwnerTokens(address token) external view returns (uint256);
+    function getOperatorTokens(address token) external view returns (uint256);
+    function getSetting(
+        address revenueContract
+    ) external view returns (uint8 split, bytes4 claimFunc, bytes4 transferFunc);
 }
 
 /* AAVE PROTOCOL / LENDING + CREDIT */
@@ -86,25 +161,6 @@ interface IAaveMarket {
     function getPriceOracle() external view returns (address);
   }
 
-interface INNETH is IERC20 {
-    function initialize(address _reserveToken, address market, address _debtToken, uint8 eMode, string memory _name, string memory _sym) external;
-
-    function reserveToken() external returns(IERC20x);
-    function aaveMarket() external returns(IAaveMarket);
-    function aToken() external returns(IERC20x);
-    function debtToken() external returns(IERC20x);
-    function underlying() external returns(uint256);
-
-    function deposit(uint256 dubloons) external;
-    function depositWithPreference(address receiver, uint256 dubloons, address city, address referrer) external;
-    function withdraw(uint256 dubloons) external;
-    function approve(address mate, uint256 dubloons) external returns (bool);
-    function transfer(address mate, uint256 dubloons) external returns (bool);
-    function transferFrom(address me, address mate, uint256 dubloons) external returns (bool);
-    function farm(uint256 dubloons) external;
-    function pullReserves(uint256 dubloons) external;
-    function lend(address mate, uint256 dubloons) external;
-}
 
 
 

@@ -11,7 +11,7 @@ import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 contract nnEthInvariants is NNETHBaseTest {
     Handler public handler;
 
-    function setUp() override public {
+    function setUp() override virtual public {
         super.setUp();
         handler = new Handler(nnETH, address(reserveToken));
 
