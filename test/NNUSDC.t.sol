@@ -11,30 +11,30 @@ import {WETHSymTest} from "./WETH.symbolic.t.sol";
 contract NNUSDCAaveIntegration is NNETHAaveIntegration {
     function setUp() override(NNETHAaveIntegration) virtual public {
         reserveToken = USDC;
-        debtToken = debtBTC;
-        borrowToken = address(BTC);
+        debtToken = debtWETH;
+        borrowToken = address(WETH);
         super.setUp();
     }
 
     function test_initialize_configSetup() virtual public {
         assertEq(address(reserveToken), address(USDC));
-        assertEq(address(debtToken), address(debtBTC));
-        assertEq(address(borrowToken), address(BTC));
+        assertEq(address(debtToken), address(debtWETH));
+        assertEq(address(borrowToken), address(WETH));
     }
 }
 
 contract NNUSDCCore is NNETHCore {
     function setUp() override(NNETHBaseTest) virtual public {
         reserveToken = USDC;
-        debtToken = debtBTC;
-        borrowToken = address(BTC);
+        debtToken = debtWETH;
+        borrowToken = address(WETH);
         super.setUp();
     }
 
     function test_initialize_configSetup() override virtual public {
         assertEq(address(reserveToken), address(USDC));
-        assertEq(address(debtToken), address(debtBTC));
-        assertEq(address(borrowToken), address(BTC));
+        assertEq(address(debtToken), address(debtWETH));
+        assertEq(address(borrowToken), address(WETH));
     }
 }
 
@@ -42,15 +42,15 @@ contract NNUSDCCore is NNETHCore {
 contract NNUSDCInvariants is nnEthInvariants {
     function setUp() override(nnEthInvariants) virtual public {
         reserveToken = USDC;
-        debtToken = debtBTC;
-        borrowToken = address(BTC);
+        debtToken = debtWETH;
+        borrowToken = address(WETH);
         super.setUp();
     }
 
     function test_initialize_configSetup() virtual public {
         assertEq(address(reserveToken), address(USDC));
-        assertEq(address(debtToken), address(debtBTC));
-        assertEq(address(borrowToken), address(BTC));
+        assertEq(address(debtToken), address(debtWETH));
+        assertEq(address(borrowToken), address(WETH));
     }
 }
 
@@ -58,15 +58,15 @@ contract NNUSDCInvariants is nnEthInvariants {
 contract NNUSDCSymTest is WETHSymTest {
     function setUp() override(NNETHBaseTest) virtual public {
         reserveToken = USDC;
-        debtToken = debtBTC;
-        borrowToken = address(BTC);
+        debtToken = debtWETH;
+        borrowToken = address(WETH);
         super.setUp();
     }
 
     function test_initialize_configSetup() virtual public {
         assertEq(address(reserveToken), address(USDC));
-        assertEq(address(debtToken), address(debtBTC));
-        assertEq(address(borrowToken), address(BTC));
+        assertEq(address(debtToken), address(debtWETH));
+        assertEq(address(borrowToken), address(WETH));
     }
 }
 

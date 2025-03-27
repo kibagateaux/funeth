@@ -110,6 +110,7 @@ contract NNETH is INNETH {
         
         // assumes aave debt token decimals = actual debt asset token decimals
         try debtToken.decimals() returns (uint8 dec) {
+            console.log("debtTokenDecimals", dec);
             debtTokenDecimals = dec;
             return;
         } catch (bytes memory _err) {
@@ -201,6 +202,7 @@ contract NNETH is INNETH {
     function transferFrom(address me, address mate, uint256 dubloons) public returns (bool) {
         // for sym test. could remove and revert on balanceOf check math
         if(balanceOf[me] < dubloons) revert InsufficientBalance();
+        // require(balanceOf[me] >= dubloons);
 
         if (me != msg.sender && allowance[me][msg.sender] != type(uint256).max) {
             require(allowance[me][msg.sender] >= dubloons);
@@ -288,7 +290,15 @@ contract NNETH is INNETH {
         // Also assumes debtToken decimals = actual token decimals
 
         // TODO update to use price(reserveToken) * totalCreditDelegated and debtTokenDecimals + 8 (price decimals)
-        uint256 scaledDelegatedCredit = convertToDecimal(totalCreditDelegated, debtTokenDecimals, 8);
+        uint256 _creditUSD = totalCreditDelegated * price(debtToken.UNDERLYING_ASSET_ADDRESS());
+        uint256 scaledDelegatedCredit = convertToDecimal(_creditUSD, debtTokenDecimals + 8, 8);
+
+        console.log("totalCreditDelegated totes", totalCreditDelegated);
+        console.log("totalCreditDelegated normalize", totalCreditDelegated / 10**debtTokenDecimals);
+        console.log("_creditUSD", _creditUSD);
+        console.log("debtTokenDecimals", debtTokenDecimals + 8);
+        console.log("scaledDelegatedCredit", scaledDelegatedCredit);
+        console.log("totalCollateralBase", totalCollateralBase);
 
         // This fails if we have debt > credit delegated e.g. interest or price increase since delegation
         // uint256 unborrowedDebt = scaledDelegatedCredit - totalDebtBase;
@@ -306,6 +316,7 @@ contract NNETH is INNETH {
         if (unborrowedDebt == totalDebtBase) return uint8(convertToDecimal(hf, 18, 0)); // returns 100
 
         uint256 maxBorrowedHF = ((totalCollateralBase * ltv) / maxDebt / BPS_COEFFICIENT);
+        console.log("maxBorrowedHF", maxBorrowedHF);
         return uint8(maxBorrowedHF);
     }
 
@@ -323,11 +334,8 @@ contract NNETH is INNETH {
 
     /// @notice returns price of asset in USD 8 decimals from Aave/Chainlink oracles   
     /// @dev Assumes Aave only uses USD price oracles. e.g. not stETH/ETH but shouldnt be relevant for simple assets
-    function price(address asset) public returns (uint256 usdPrice) {
-        (, bytes memory data) = IAaveMarket(aaveMarket.ADDRESSES_PROVIDER()).getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", asset));
-        assembly {
-            usdPrice := mload(add(data, 32))
-        }
+    function price(address asset) public view returns (uint256) {
+        return IAaveMarket(aaveMarket.ADDRESSES_PROVIDER()).getPriceOracle().getAssetPrice(asset);
     }
 
     function recoverTokens(address token) public {

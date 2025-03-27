@@ -56,6 +56,7 @@ contract NNETHBaseTest is Test {
         vm.assume(address(debtWETH) != target);
         vm.assume(address(USDC) != target);
         vm.assume(address(debtUSDC) != target);
+        vm.assume(address(0x4fc7850364958d97B4d3f5A08f79db2493f8cA44) != target); // proxy admin. throws if USDC called by them.
         vm.assume(address(0x3ABd6f64A422225E61E435baE41db12096106df7) != target); // proxy admin. throws if USDC called by them.
         vm.assume(address(BTC) != target);
         vm.assume(address(debtBTC) != target);
@@ -131,25 +132,56 @@ contract NNETHBaseTest is Test {
         (,,,, uint256 ltvConfig,) = aave.getUserAccountData(address(nnETH));
 
         // Normal market doesnt return as it should so use AddressProvider to fetch oracle.
-        (, bytes memory data) = IAaveMarket(0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D).getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", reserveToken));
+        // (, bytes memory data) = IAaveMarket(0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D).getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", reserveToken));
+        // uint256 price;
+        // assembly {
+        //     price := mload(add(data, 32))
+        // }
+        uint256 reservePrice = IAaveMarket(aave.ADDRESSES_PROVIDER()).getPriceOracle().getAssetPrice(address(reserveToken));
+        uint256 debtPrice = IAaveMarket(aave.ADDRESSES_PROVIDER()).getPriceOracle().getAssetPrice(debtToken.UNDERLYING_ASSET_ADDRESS());
 
-        uint256 price;
-        assembly {
-            price := mload(add(data, 32))
-        }
         
-        emit log_named_uint("reserveToken price (8 dec)", price);
+        emit log_named_uint("reserveToken reservePrice (8 dec)", reservePrice);
+        emit log_named_uint("debtToken reservePrice (8 dec)", debtPrice);
 
-        aaveTotalCredit = (nnethSupply * ltvConfig * price)
-            / 1e4 // ltv bps offset
-            / 1e8;  // price decimals
+        // aaveTotalCredit = (nnethSupply * ltvConfig * reservePrice)
+        //     / 1e4 // ltv bps offset
+        //     / 1e8; // reservePrice decimals
 
         // 8 = some aave internal decimal thing since we already offset price decimals
-        aaveTotalCredit = nnETH.decimals() > 10 ?
-            aaveTotalCredit / (10**(nnETH.decimals() - 8)) :
-            aaveTotalCredit * (10**(8-nnETH.decimals()));
+        // total credit in usd 8 decimals
+        // aaveTotalCredit = nnETH.decimals() > 8 ?
+        // //     // offset nnethSupply decimals to normalize to 8 dec usd price
+        //     aaveTotalCredit / (10**(nnETH.decimals() - 8)) :
+        //     aaveTotalCredit * (10**(8-nnETH.decimals()));
+        
+        // 1e4  ltv bps offset + 1e8 reservePrice decimals
+        uint256 aaveTotalCredit = nnETH.convertToDecimal(
+            nnethSupply * ltvConfig * reservePrice,
+            reserveToken.decimals() + 12,
+            8
+        );
 
-        nnEthCreditLimit = ((aaveTotalCredit / nnETH.MIN_RESERVE_FACTOR()) - 1) / 1e2; // just under limit. account for aave vs debtToken decimals
+        emit log_named_uint("ttoal cred init (8 dec)", aaveTotalCredit);
+        // emit log_named_uint("total cred new (8 dec)", aaveTotalCredit2);
+
+        // total credit in usd -> debt token
+        // need to account for token price
+        //  nnEthCreditLimit = ((aaveTotalCredit / nnETH.MIN_RESERVE_FACTOR()) - 1) / 1e2; // just under limit. account for aave vs debtToken decimals
+        nnEthCreditLimit = nnETH.convertToDecimal(
+            (aaveTotalCredit / nnETH.MIN_RESERVE_FACTOR()) - 1,
+             8,
+             debtToken.decimals()
+        );
+
+        nnEthCreditLimit = (nnETH.convertToDecimal(
+            aaveTotalCredit,
+            0, // upscale from final decimal amount (8 dec prices cancel out) to get more precise answer
+             debtToken.decimals()
+        )  / debtPrice / nnETH.MIN_RESERVE_FACTOR()) - 1;
+        emit log_named_uint("ttoal cred init (8 dec)", nnEthCreditLimit);
+        // emit log_named_uint("total cred new (8 dec)", nnEthCreditLimit2);
+        // emit log_named_uint("total cred new2 (8 dec)", nnEthCreditLimit3);
 
         // 41_666_667 min ETH deposited to borrow 1 USDC of credit
         // 100 = nnETHCreditLimit in Aave 8 decimals = 1 USDC in 6 decimals

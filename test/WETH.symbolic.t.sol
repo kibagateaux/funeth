@@ -201,13 +201,13 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
         _assumeValidAddress(src);
         _assumeValidAddress(guy);
         _assumeValidAddress(dst);
-        vm.assume(approval > wad);
         vm.assume(guy != dst);
         vm.assume(guy != gal);
         vm.assume(dst != gal);
         vm.assume(src != gal);
 
         wad = _depositnnEth(src, wad, true);
+        vm.assume(approval > wad);
 
         vm.prank(src);
         nnETH.approve(guy, approval);
@@ -230,9 +230,9 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
         _assumeValidAddress(dst);
         vm.assume(guy != src);
         vm.assume(src != dst);
-        vm.assume(approval > wad);
         vm.assume(approval != type(uint256).max);
         wad = _depositnnEth(src, wad, true);
+        vm.assume(approval > wad);
 
         vm.prank(src);
         nnETH.approve(guy, approval);
@@ -260,9 +260,9 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
         _assumeValidAddress(dst);
         vm.assume(guy != src);
         vm.assume(src != dst);
-        vm.assume(approval > wad);
 
         wad = _depositnnEth(src, wad, true);
+        vm.assume(approval > wad);
 
         vm.prank(src);
         nnETH.approve(guy, approval);

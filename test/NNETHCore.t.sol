@@ -376,7 +376,6 @@ contract NNETHCore is NNETHBaseTest {
 
         vm.expectRevert(NNETH.MaliciousWithdraw.selector);
         _withdrawnnEth(user, n);
-        makeAddr("boogawugi");
         // still above min redeem factor bc withdraw failed
         assertGe(nnETH.getExpectedHF(), nnETH.MIN_REDEEM_FACTOR());
     }

@@ -16,7 +16,7 @@ interface IERC20x is IERC20 {
     // WETH
     function deposit() payable external returns(bool);
     // aave debt token
-    function scaledBalanceOf(address mate) external view returns(uint256);
+    function UNDERLYING_ASSET_ADDRESS() external view returns(address);
     function approveDelegation(address mate,uint256 dubloons) external;
     function borrowAllowance(address guarantor, address debtor) external view returns (uint256); //to - value
 }
@@ -156,9 +156,10 @@ interface IAaveMarket {
 
     function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
 
-    function ADDRESSES_PROVIDER() external view returns (address);
+    function ADDRESSES_PROVIDER() external view returns (address);  
     /// @dev actually on IPoolAddressProvider not IPool
-    function getPriceOracle() external view returns (address);
+    function getPriceOracle() external view returns (IAaveMarket);
+    function getAssetPrice(address asset) external view returns (uint256);
   }
 
 

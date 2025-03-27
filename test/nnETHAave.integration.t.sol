@@ -41,20 +41,20 @@ contract NNETHAaveIntegration is NNETHBaseTest {
     function invariant_deposit_increaseAToken() public {
         assertEq(handler.netDeposits(), nnETH.underlying());
 
-        uint256 n = _depositnnEth(address(0xdead), 100, true);
+        uint256 n = _depositnnEth(makeAddr("boogawugi"), 100, true);
 
         assertGe(nnETH.underlying(), handler.netDeposits() + n);
     }
 
     function invariant_deposit_aTokenEarnsYield() public {
-        _depositnnEth(address(0xdead), 500 ether, true);
+        _depositnnEth(makeAddr("boogawugi"), 500 ether, true);
         uint256 aTokenBalance = nnETH.underlying();
 
         vm.warp(block.timestamp + 1 days);
         
         // need to interact with pool to update index on account and reflect in next scaledBalance
         // could do manual math to calculate or just add new 1 wei deposit to previous deposit amount
-        _depositnnEth(address(0xdead), 1, true);
+        _depositnnEth(makeAddr("boogawugi"), 1, true);
 
 
         // increases with time without any action from us
@@ -64,7 +64,7 @@ contract NNETHAaveIntegration is NNETHBaseTest {
     // function invariant_getAvailableCredit_matchesAaveUserSummary() public {
     //     uint256 ltvConfig = 80;
     //     uint256 _deposit = 60 ether;
-    //     uint256 deposit = _depositnnEth(address(0xdead), _deposit, true);
+    //     uint256 deposit = _depositnnEth(makeAddr("boogawugi"), _deposit, true);
 
 
     //     (uint256 totalCredit, ) = _borrowable(deposit);
@@ -78,7 +78,7 @@ contract NNETHAaveIntegration is NNETHBaseTest {
     function test_lend_canDelegateCredit(address city) public {
         _assumeValidAddress(city);
 
-        uint256 n = _depositnnEth(address(0xdead), 100 ether, true);
+        uint256 n = _depositnnEth(makeAddr("boogawugi"), 100 ether, true);
 
         // todo expect call to nnETH.debtToken
         // bytes memory data = abi.encodeWithSelector(IERC20x.approveDelegation.selector, city, n); 
