@@ -1,8 +1,8 @@
 pragma solidity ^0.8.26;
 
 import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
-import {IERC20x, IAaveMarket, INNETH, AaveErrors} from "../src/Interfaces.sol";
-import {NNETH} from "../src/NNETH.sol";
+import {IERC20x, IAaveMarket, INNETH, AaveErrors} from "../../src/Interfaces.sol";
+import {NNETH} from "../../src/NNETH.sol";
 
 contract NNETHCore is NNETHBaseTest {
     function test_initialize_mustHaveMultiSigDeployed() public view {

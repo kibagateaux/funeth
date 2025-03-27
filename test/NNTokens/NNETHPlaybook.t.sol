@@ -5,9 +5,9 @@ import {CommonBase} from "forge-std/Base.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {console} from "forge-std/console.sol";
-import {AddressSet, LibAddressSet} from "./helpers/AddressSet.sol";
-import {IERC20x} from "../src/Interfaces.sol";
-import {NNETH} from "../src/NNETH.sol";
+import {AddressSet, LibAddressSet} from "../helpers/AddressSet.sol";
+import {IERC20x} from "../../src/Interfaces.sol";
+import {NNETH} from "../../src/NNETH.sol";
 import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 
 

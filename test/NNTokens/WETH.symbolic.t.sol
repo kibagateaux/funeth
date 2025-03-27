@@ -6,7 +6,7 @@ pragma solidity ^0.8.26;
 import {SymTest} from "halmos-cheatcodes/SymTest.sol";
 import {Test} from "forge-std/Test.sol";
 
-import {NNETH} from "../src/NNETH.sol";
+import {NNETH} from "../../src/NNETH.sol";
 import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 
 contract WETHSymTest is SymTest, NNETHBaseTest {

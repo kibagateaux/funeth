@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.13;
 
-import {IERC20x} from "../src/Interfaces.sol";
+import {IERC20x} from "../../src/Interfaces.sol";
 import {NNETHCore} from "./NNETHCore.t.sol";
 import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 import {NNETHAaveIntegration} from "./NNETHAave.integration.t.sol";

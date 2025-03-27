@@ -2,8 +2,8 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 
-import {NNETH} from "../src/NNETH.sol";
-import {IERC20x, IAaveMarket, INNETH} from "../src/Interfaces.sol";
+import {NNETH} from "../../src/NNETH.sol";
+import {IERC20x, IAaveMarket, INNETH} from "../../src/Interfaces.sol";
 
 contract NNETHBaseTest is Test {
     NNETH public nnETH;
