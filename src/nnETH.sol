@@ -43,7 +43,6 @@ contract NNETH is INNETH {
 
     event Approval(address indexed me, address indexed mate, uint256 dubloons);
     event Transfer(address indexed me, address indexed mate, uint256 dubloons);
-
     ///@notice who deposited, how much, where they want yield directed, who recruited mate
     event Deposit(address indexed mate, address indexed receiver, uint256 dubloons, address indexed city, address referrer);
     ///@notice who withdrew, how much
@@ -286,38 +285,25 @@ contract NNETH is INNETH {
 
         // aave assumes debt amount is usd in 8 decimals. convert debt token decimals to match
         // https://github.com/aave-dao/aave-v3-origin/blob/a0512f8354e97844a3ed819cf4a9a663115b8e20/src/contracts/protocol/libraries/logic/LiquidationLogic.sol#L72
-        // Assumes we only allow stablecoins for borrowing so 1 totalDelegatedCredit = 1 USD
         // Also assumes debtToken decimals = actual token decimals
+        uint256 scaledDelegatedCredit = convertToDecimal(
+            totalCreditDelegated * price(debtToken.UNDERLYING_ASSET_ADDRESS()),
+            debtTokenDecimals + 8, // offset token + new price decimals to match aave usd decimals
+            8
+        );
 
-        // TODO update to use price(reserveToken) * totalCreditDelegated and debtTokenDecimals + 8 (price decimals)
-        uint256 _creditUSD = totalCreditDelegated * price(debtToken.UNDERLYING_ASSET_ADDRESS());
-        uint256 scaledDelegatedCredit = convertToDecimal(_creditUSD, debtTokenDecimals + 8, 8);
-
-        console.log("totalCreditDelegated totes", totalCreditDelegated);
-        console.log("totalCreditDelegated normalize", totalCreditDelegated / 10**debtTokenDecimals);
-        console.log("_creditUSD", _creditUSD);
-        console.log("debtTokenDecimals", debtTokenDecimals + 8);
-        console.log("scaledDelegatedCredit", scaledDelegatedCredit);
-        console.log("totalCollateralBase", totalCollateralBase);
-
-        // This fails if we have debt > credit delegated e.g. interest or price increase since delegation
-        // uint256 unborrowedDebt = scaledDelegatedCredit - totalDebtBase;
-
-        // So we assume if debt exceeds delegation then assume all credit is borrowed.
-        // Since borrowing not internal to contract we cant know how much credit was borrowed vs reserve price dropping
-        // TODO handling borrowing internally means we can price debt to toekns borrowed allowing easier non-stable borrowing
-        // depends if we can get debtToken.balanceOf() all in here or if its sent to individual borrowers
+        // debt > credit delegated e.g. interest or price increase since delegation
+        // So of debt exceeds delegation then assume all credit is borrowed. Not 100% accurate but reasonable
+        // Since borrowing not internal to contract we cant know how much credit was borrowed vs reserve price dropping.
         uint256 unborrowedDebt = totalDebtBase > scaledDelegatedCredit ? totalDebtBase : scaledDelegatedCredit - totalDebtBase;
         uint256 maxDebt = totalDebtBase + unborrowedDebt;
 
         // Avoid division by zero
         if (maxDebt == 0) return uint8(convertToDecimal(hf, 18, 2)); // returns 100
         // max debt borrowed already
-        if (unborrowedDebt == totalDebtBase) return uint8(convertToDecimal(hf, 18, 0)); // returns 100
+        if (unborrowedDebt == totalDebtBase) return uint8(convertToDecimal(hf, 18, 0));
 
-        uint256 maxBorrowedHF = ((totalCollateralBase * ltv) / maxDebt / BPS_COEFFICIENT);
-        console.log("maxBorrowedHF", maxBorrowedHF);
-        return uint8(maxBorrowedHF);
+        return uint8((totalCollateralBase * ltv) / maxDebt / BPS_COEFFICIENT);
     }
 
     /// Helper functions 
@@ -332,11 +318,31 @@ contract NNETH is INNETH {
         return underlying() - totalSupply - 1; // -1 to account for rounding errors in aave
     }
 
+    // TODO should turn price + decimals func into lib for NNTokens
+    
     /// @notice returns price of asset in USD 8 decimals from Aave/Chainlink oracles   
     /// @dev Assumes Aave only uses USD price oracles. e.g. not stETH/ETH but shouldnt be relevant for simple assets
     function price(address asset) public view returns (uint256) {
         return IAaveMarket(aaveMarket.ADDRESSES_PROVIDER()).getPriceOracle().getAssetPrice(asset);
     }
+
+    function reserveAssetPrice() public view returns (uint256) {
+        return price(address(reserveToken));
+    }
+
+    function debtAssetPrice() public view returns (uint256) {
+        return price(address(debtToken.UNDERLYING_ASSET_ADDRESS()));
+    }
+
+    function convertToDecimal(uint256 amount, uint8 currentDecimals, uint8 targetDecimals) public pure returns (uint256) {
+        if(currentDecimals == targetDecimals) return amount;
+        if(currentDecimals > targetDecimals) {
+            return amount / 10**(currentDecimals - targetDecimals);
+        } else {
+            return amount * 10**(targetDecimals - currentDecimals);
+        }
+    }
+
 
     function recoverTokens(address token) public {
         if(token == address(aToken)) revert InvalidToken();
@@ -354,14 +360,5 @@ contract NNETH is INNETH {
             size := extcodesize(_contract)
         }
         return size;
-    }
-
-    function convertToDecimal(uint256 amount, uint8 currentDecimals, uint8 targetDecimals) public pure returns (uint256) {
-        if(currentDecimals == targetDecimals) return amount;
-        if(currentDecimals > targetDecimals) {
-            return amount / 10**(currentDecimals - targetDecimals);
-        } else {
-            return amount * 10**(targetDecimals - currentDecimals);
-        }
     }
 }

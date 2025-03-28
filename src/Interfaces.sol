@@ -262,6 +262,7 @@ library AaveErrors {
 }
 
 /* GNOSIS PROTOCOL / COW SWAP ORDERS */
+// https://github.com/gnosis/gp-v2-contracts/blob/main/src/contracts/libraries/GPv2Trade.sol
 library GPv2Order {
     /// @dev The complete data for a Gnosis Protocol order. This struct contains
     /// all order parameters that are signed for submitting to GP.

@@ -1,6 +1,6 @@
 // pragma solidity ^0.8.26;
 
-// import {ERC20} from "solmate/tokens/ERC20.sol";
+// import {ERC20} from "solady/tokens/ERC20.sol";
 // import {INNETH, IERC20x, IAaveMarket, ReserveData, GPv2Order} from "./Interfaces.sol";
 
 // /**
@@ -59,18 +59,7 @@
 
 //     using GPv2Order for GPv2Order.Data;
 //     uint8 internal constant MAX_REVENUE_SPLIT = 100;
-//     bytes4 internal constant ERC_1271_MAGIC_VALUE =  0x1626ba7e;
-//     bytes4 internal constant ERC_1271_NON_MAGIC_VALUE = 0xffffffff;
-//     /// @notice The contract that settles all trades. Must approve sell tokens to this address.
-//     /// @dev Same address acorss all chains
-//     address internal constant COWSWAP_SETTLEMENT_ADDRESS = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
-//     /* end slot 1 */
 
-//     /// @notice The settlement contract's EIP-712 domain separator. Milkman uses this to verify that a provided UID matches provided order parameters.
-//     /// @dev Same acorss all chains because settlement address is the same
-//     bytes32 internal constant COWSWAP_DOMAIN_SEPARATOR =
-//         0xc078f884a2676e1345748b1feace7b0abee5d00ecadb6e574dcdd109a63e8943;
-//     uint256 internal constant MAX_TRADE_DEADLINE = 1 days;
 //     IERC20x internal WETH;
 
 //     ISpigot public spigot;
