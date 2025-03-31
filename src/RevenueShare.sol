@@ -67,6 +67,7 @@
 //     address public borrower;
 //     address public creditToken;
 //     uint8 public lenderRevenueSplit;
+//     bool public isTransferrable = true;
 
 //     // denominated in creditToken
 //     uint256 public initialPrincipal;
@@ -83,6 +84,7 @@
 //         address _creditToken,
 //         uint8 _revenueSplit,
 //         uint256 _initialPrincipal,
+//         bool _isTransferrable,
 //         uint256 _totalOwed,
 //         string memory _name,
 //         string memory _symbol
@@ -106,6 +108,7 @@
 //         spigot = ISpigot(_spigot);
 
 //         // RSA financial terms
+//         isTransferrable = _isTransferrable;
 //         totalOwed = _totalOwed;
 //         creditToken = _creditToken;
 //         lenderRevenueSplit = _revenueSplit;
