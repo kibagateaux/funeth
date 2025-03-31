@@ -70,12 +70,13 @@ contract NNETHCore is NNETHBaseTest {
 
     function test_deposit_revertsOn0AddressReceiver(address user, uint256 amount) public {
         _assumeValidAddress(user);
+        uint256 n = _depositnnEth(amount, false);
         vm.prank(user);
-        reserveToken.approve(address(nnETH), amount);
+        reserveToken.approve(address(nnETH), n);
         
         vm.prank(user);
         vm.expectRevert(NNETH.InvalidReceiver.selector);
-        nnETH.depositOnBehalfOf(amount, address(0), makeAddr("boogawugi"));
+        nnETH.depositOnBehalfOf(n, address(0), makeAddr("boogawugi"));
     }
 
     function test_deposit_revertsOnBelowMinDeposit(address user, uint256 amount) public {

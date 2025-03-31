@@ -1,15 +1,15 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/console.sol";
+import {ERC20} from "solady/tokens/ERC20.sol";
 import {INNETH, IERC20x, IAaveMarket, ReserveData} from "./Interfaces.sol";
 
-contract NNETH is INNETH {
+contract NNETH is INNETH, ERC20 {
     // Multisig deployed on Mainnet, Arbitrum, Base, OP,
     // TODO rename FUN_TREASURY
     address public constant ZU_CITY_TREASURY = address(0xC958dEeAB982FDA21fC8922493d0CEDCD26287C3);
     uint64 public constant MIN_DEPOSIT = 100_000_000; // to prevent aave math from causing reverts on small amounts from rounding decimal diffs. $100 USDC or 0.5 ETH ETH
     // TODO figure out lowest amount where aave tests dont fail
-    // uint256 public constant MIN_DEPOSIT = 100; // to prevent aave math from causing reverts on small amounts. $100 USDC or 1e-9 ETH
 
     /// @notice min health factor for user to redeem to prevent malicious liquidations. 2 = Redeems until debt = 50% of nnETH TVL
     uint8 public constant MIN_REDEEM_FACTOR = 2;
@@ -18,31 +18,36 @@ contract NNETH is INNETH {
     /// @notice used to convert AAVE LTV to HF calc
     uint16 public constant BPS_COEFFICIENT = 1e4;
 
-    string public name;
-    string public symbol;
+    string internal _name;
+    string internal _symbol;
     /// @notice nnETH token decimals. same as reserveToken decimals
-    uint8 public decimals;
-    /// @notice total reserveToken deposited, denominated in reserve decimals.
-    uint256 public totalSupply;
+    uint8 internal _decimals; // TODO override solady decimal func
+    /// @notice totalSupply() = total reserveToken deposited, denominated in reserve decimals.
+
+    // TODO these necessary?
     /// @notice full decimal offset between reserveToken and aToken e.g. 1e10 not 10
     uint256 public reserveVsATokenDecimalOffset;
     /// @notice decimals for token we borrow for use in HF calculations
     uint8 public debtTokenDecimals;
-    /// @notice total delegated. NOT total currently borrowed. Denominated in debtToken
-    uint256 public totalCreditDelegated;
-
 
     /// @notice Token to accept for home payments in nnCity
     IERC20x public reserveToken;
+    // TODO does anything below need to actually be public except for testing?
     /// @notice Aave Pool for lending + borrowing
     IAaveMarket public aaveMarket;
     /// @notice Aave yield bearing token for reserveToken. Provides total ETH balance of nnETH contract.
     IERC20x public aToken;
     /// @notice Aave variable debt token that we let popups borrow against nnCity collateral
     IERC20x public debtToken;
+    /// @notice Address of the actual debt asset. e.g. USDC
+    address internal debtAsset;
 
-    event Approval(address indexed me, address indexed mate, uint256 dubloons);
-    event Transfer(address indexed me, address indexed mate, uint256 dubloons);
+
+    /// @notice total delegated. NOT total currently borrowed. Denominated in debtToken
+    uint256 public totalCreditDelegated;
+    // TODO easier to enforce loans within the contract e.g. nnETH.borrow() instead of delegated credit
+    mapping(address => uint256) public credited; // TODO? make City struct with creditedUSDC + delegatedETH
+
     ///@notice who deposited, how much, where they want yield directed, who recruited mate
     event Deposit(address indexed mate, address indexed receiver, uint256 dubloons, address indexed city, address referrer);
     ///@notice who withdrew, how much
@@ -59,7 +64,6 @@ contract NNETH is INNETH {
     error InvalidReserveMarket();
     error InvalidToken();
     error InvalidReceiver();
-    error InsufficientBalance();
     error BelowMinDeposit();
     error NotEthReserve();
     error NotnnCity();
@@ -70,13 +74,19 @@ contract NNETH is INNETH {
     error CreditRisk();
     error NoCredit();
 
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
+    function name() public view override returns (string memory) {
+        return _name;
+    }
 
-    // TODO easier to enfore loans within the contract e.g. nnETH.borrow()instead of delegated credit
-    mapping(address => uint256) public credited; // TODO? make City struct with creditedUSDC + delegatedETH
+    function symbol() public view override returns (string memory) {
+        return _symbol;
+    }   
 
-    function initialize(address _reserveToken, address market, address _debtToken, string memory _name, string memory _sym) public {
+    function decimals() public view override(INNETH, ERC20) returns (uint8) {
+        return _decimals;
+    }
+
+    function initialize(address _reserveToken, address market, address _debtToken, string memory name_, string memory symbol_) public {
         if(address(reserveToken) != address(0)) revert AlreadyInitialized();
         
         // naive check if nnCity governance is deployed on this chain
@@ -86,12 +96,13 @@ contract NNETH is INNETH {
         // Ensure aave market accepts the asset people deposit
         if(pool.aTokenAddress == address(0)) revert InvalidReserveMarket();
 
-        name = _name;
-        symbol = _sym;
+        _name = name_;
+        _symbol = symbol_;
         aaveMarket = IAaveMarket(market);
         reserveToken = IERC20x(_reserveToken);
         aToken = IERC20x(pool.aTokenAddress);
         debtToken = IERC20x(_debtToken);
+        debtAsset = debtToken.UNDERLYING_ASSET_ADDRESS();
 
         // Aave docs say eMode must be the same for delegator + borrower. 0 = none is fine.
         // aaveMarket.setUserEMode(eMode);
@@ -99,7 +110,7 @@ contract NNETH is INNETH {
         reserveToken.approve(address(aaveMarket), type(uint256).max);
 
         uint8 reserveDecimals = reserveToken.decimals();
-        decimals = reserveDecimals;
+        _decimals = reserveDecimals;
         uint8 aTokenDecimals = aToken.decimals();
         // assume aToken = 18 decimals and reserve token <= 18 decimals
         if(aTokenDecimals >= reserveDecimals) {
@@ -120,8 +131,6 @@ contract NNETH is INNETH {
         // aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);
     }
 
-
-
     function deposit(uint256 dubloons) public {
         _deposit(msg.sender, msg.sender, dubloons, address(ZU_CITY_TREASURY), address(this));
     }
@@ -141,25 +150,18 @@ contract NNETH is INNETH {
     }
 
     function _deposit(address owner, address receiver, uint256 dubloons, address city, address referrer) public {
-        if(receiver == address(0)) revert InvalidReceiver();
         if(dubloons < MIN_DEPOSIT) revert BelowMinDeposit();
         
         reserveToken.transferFrom(owner, address(this), dubloons);
         farm(reserveToken.balanceOf(address(this))); // scoop tokens sent directly too
-        mint(receiver, dubloons);
+        _mint(receiver, dubloons);
         
         emit Deposit(owner, receiver, dubloons, city, referrer);
-    }
-
-    function mint(address to, uint256 dubloons) private {
-        balanceOf[to] += dubloons;
-        totalSupply += dubloons;
     }
 
     function farm(uint256 dubloons) public {
         // token approval in pullReserves
         aaveMarket.supply(address(reserveToken), dubloons, address(this), 200); // 200 = referall code. l33t "Zoo" 
-
         emit Farm(address(aaveMarket), address(reserveToken), dubloons);
     }
 
@@ -171,49 +173,12 @@ contract NNETH is INNETH {
         _withdraw(msg.sender, to, dubloons);
     }
 
-
-    function burn(address from, uint256 dubloons) private {
-        balanceOf[from] -= dubloons;
-        totalSupply -= dubloons;
-    }
-
     function _withdraw(address owner, address to, uint256 dubloons) internal {
-        burn(owner, dubloons);
-
+        _burn(owner, dubloons);
         aaveMarket.withdraw(address(reserveToken), dubloons, to);
-        
         // check *after* withdrawing and aave updates collateral balance
         if(getExpectedHF() < MIN_REDEEM_FACTOR) revert MaliciousWithdraw();
-
         emit Withdrawal(owner, to, dubloons);
-    }
-
-    function approve(address mate, uint256 dubloons) public returns (bool) {
-        allowance[msg.sender][mate] = dubloons;
-        emit Approval(msg.sender, mate, dubloons);
-        return true;
-    }
-
-    function transfer(address mate, uint256 dubloons) public returns (bool) {
-        return transferFrom(msg.sender, mate, dubloons);
-    }
-
-    function transferFrom(address me, address mate, uint256 dubloons) public returns (bool) {
-        // for sym test. could remove and revert on balanceOf check math
-        if(balanceOf[me] < dubloons) revert InsufficientBalance();
-        // require(balanceOf[me] >= dubloons);
-
-        if (me != msg.sender && allowance[me][msg.sender] != type(uint256).max) {
-            require(allowance[me][msg.sender] >= dubloons);
-            allowance[me][msg.sender] -= dubloons;
-        }
-
-        balanceOf[me] -= dubloons;
-        balanceOf[mate] += dubloons;
-
-        emit Transfer(me, mate, dubloons);
-
-        return true;
     }
     
     /* nnETH Treasury functions */
@@ -223,7 +188,7 @@ contract NNETH is INNETH {
     }
 
     function _assertFinancialHealth() internal view {
-        if(totalSupply > underlying()) revert InsufficientReserves();
+        if(totalSupply() > underlying()) revert InsufficientReserves();
         if(getExpectedHF() < MIN_RESERVE_FACTOR) revert CreditRisk();
     }
 
@@ -271,10 +236,8 @@ contract NNETH is INNETH {
 
         // throws error if u set collateral with 0 deposits so cant do on initialize.
         aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);
-
         // allow popup to borrow against nncity collateral
         debtToken.approveDelegation(city, dubloons);
-
         emit Lend(msg.sender, address(debtToken), city, dubloons);
     }
 
@@ -283,11 +246,11 @@ contract NNETH is INNETH {
         // ideally use liquidationThreshold not ltv but aave uses ltv for "borrowable" amount so would make tests messier
         (uint256 totalCollateralBase, uint256 totalDebtBase,,, uint256 ltv, uint256 hf) = aaveMarket.getUserAccountData(address(this));
 
-        // aave assumes debt amount is usd in 8 decimals. convert debt token decimals to match
+        // aave *internally assumes* debt amount is usd in 8 decimals. convert debt token decimals to match
         // https://github.com/aave-dao/aave-v3-origin/blob/a0512f8354e97844a3ed819cf4a9a663115b8e20/src/contracts/protocol/libraries/logic/LiquidationLogic.sol#L72
         // Also assumes debtToken decimals = actual token decimals
         uint256 scaledDelegatedCredit = convertToDecimal(
-            totalCreditDelegated * price(debtToken.UNDERLYING_ASSET_ADDRESS()),
+            totalCreditDelegated * price(debtAsset),
             debtTokenDecimals + 8, // offset token + new price decimals to match aave usd decimals
             8
         );
@@ -315,7 +278,7 @@ contract NNETH is INNETH {
 
     /// @notice returns current health factor disregarding future potential debt from NN loans
     function getYieldEarned() public view returns (uint256) {
-        return underlying() - totalSupply - 1; // -1 to account for rounding errors in aave
+        return underlying() - totalSupply() - 1; // -1 to account for rounding errors in aave
     }
 
     // TODO should turn price + decimals func into lib for NNTokens
@@ -331,7 +294,7 @@ contract NNETH is INNETH {
     }
 
     function debtAssetPrice() public view returns (uint256) {
-        return price(address(debtToken.UNDERLYING_ASSET_ADDRESS()));
+        return price(address(debtAsset));
     }
 
     function convertToDecimal(uint256 amount, uint8 currentDecimals, uint8 targetDecimals) public pure returns (uint256) {
@@ -354,11 +317,9 @@ contract NNETH is INNETH {
         }
     }
 
-    function getContractSize(address _contract) private view returns (uint256) {
-        uint256 size;
+    function getContractSize(address _contract) private view returns (uint256 size) {
         assembly {
             size := extcodesize(_contract)
         }
-        return size;
     }
 }

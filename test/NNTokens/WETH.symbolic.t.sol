@@ -7,6 +7,7 @@ import {SymTest} from "halmos-cheatcodes/SymTest.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {NNETH} from "../../src/NNETH.sol";
+import {IERC20} from "../../src/Interfaces.sol";
 import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
 
 contract WETHSymTest is SymTest, NNETHBaseTest {
@@ -320,11 +321,11 @@ contract WETHSymTest is SymTest, NNETHBaseTest {
         bytes memory args;
         if (selector == NNETH.withdraw.selector) {
             args = abi.encode(wad);
-        } else if (selector == NNETH.approve.selector) {
+        } else if (selector == IERC20.approve.selector) {
             args = abi.encode(guy, wad);
-        } else if (selector == NNETH.transfer.selector) {
+        } else if (selector == IERC20.transfer.selector) {
             args = abi.encode(dst, wad);
-        } else if (selector == NNETH.transferFrom.selector) {
+        } else if (selector == IERC20.transferFrom.selector) {
             args = abi.encode(src, dst, wad);
         } else {
             // For functions where all parameters are static (not dynamic arrays or bytes),

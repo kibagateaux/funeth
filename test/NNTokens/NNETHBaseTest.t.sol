@@ -46,7 +46,7 @@ contract NNETHBaseTest is Test {
         nnETH.initialize(address(reserveToken), address(aave), address(debtToken), "nnCity Ethereum", "nnETH");
     }
 
-    function _assumeValidAddress(address target) internal {
+    function _assumeValidAddress(address target) internal view {
         //  addresses that will throw errors or miscalculations during testing
         vm.assume(address(0) != target);
         vm.assume(target != nnETH.ZU_CITY_TREASURY()); // maybe dont want this here
@@ -62,7 +62,7 @@ contract NNETHBaseTest is Test {
         vm.assume(address(debtBTC) != target);
     }
 
-    function _boundDepositAmount(uint256 initial, bool borrowable) internal returns (uint256) {
+    function _boundDepositAmount(uint256 initial, bool borrowable) internal view returns (uint256) {
         uint256 min;
         // give enough deposit that collateral value lets us borrow at least 1 unit of debt token
         if(borrowable) min = reserveToken.decimals() == 18 ? 10 ether : 100_000_000;
@@ -75,7 +75,7 @@ contract NNETHBaseTest is Test {
         ); 
     }
 
-    function _depositnnEth(address user, uint256 amount) internal returns (uint256 deposited) {
+    function _depositnnEth(address user, uint256 amount) internal view returns (uint256 deposited) {
         deposited = _boundDepositAmount(amount, false);
 
         vm.startPrank(user);
@@ -85,7 +85,7 @@ contract NNETHBaseTest is Test {
     }
 
     /// @notice ensure enough collateral so we have credit > 0 so borrow() calls dont fail on 0.
-    function _depositForBorrowing(address user, uint256 amount) internal returns (uint256 deposited) {
+    function _depositForBorrowing(address user, uint256 amount) internal view returns (uint256 deposited) {
         vm.assume(user != address(0));
         deposited = _boundDepositAmount(amount, true);
 
@@ -128,7 +128,7 @@ contract NNETHBaseTest is Test {
     * @dev denominated in Aave protocol base asset decimals (8 decimals from Chainlink feed)
         NOT debtToken decimals so must convert for calculations on lend/borrow
     */
-    function _borrowable(uint256 nnethSupply) internal returns (uint256 aaveTotalCredit, uint256 nnEthCreditLimit){
+    function _borrowable(uint256 nnethSupply) internal view returns (uint256 aaveTotalCredit, uint256 nnEthCreditLimit) {
         (,,,, uint256 ltvConfig,) = aave.getUserAccountData(address(nnETH));
 
         // Normal market doesnt return as it should so use AddressProvider to fetch oracle.
@@ -156,7 +156,7 @@ contract NNETHBaseTest is Test {
         //     aaveTotalCredit * (10**(8-nnETH.decimals()));
         
         // 1e4  ltv bps offset + 1e8 reservePrice decimals
-        uint256 aaveTotalCredit = nnETH.convertToDecimal(
+        aaveTotalCredit = nnETH.convertToDecimal(
             nnethSupply * ltvConfig * reservePrice,
             reserveToken.decimals() + 12,
             8

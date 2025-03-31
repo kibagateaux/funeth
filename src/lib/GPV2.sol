@@ -30,6 +30,7 @@ library GPv2Order {
     error InvalidTradeDomain();
     error InvalidTradeDeadline();
     error InvalidTradeTokens();
+    error InvalidTradeOrder();
     error InvalidTradeFee();
     error InvalidTradeAppData();
     error MustBeSellOrder();
@@ -284,12 +285,14 @@ library GPv2Order {
 
 abstract contract GPv2Helper {
     using GPv2Order for GPv2Order.Data;
-    struct Order {
+    struct OrderMetadata {
         uint32 deadline;
-        uint64 ownerID;
+        uint64 ownerID; // todo uint256
         uint128 minPrice; // usd 8 decimals of asset at time of order generation
     }
-    mapping(bytes32 => Order) public orderParams; // orderID -> settlement qualifications
+
+    /// @dev prevents crosschain replay attacks if we check isValidSignature against stored params
+    mapping(bytes32 => OrderMetadata) public orderParams; // orderID -> settlement qualifications
 
        
     function isValidSignature(bytes32 _tradeHash, bytes calldata _encodedOrder) external virtual view returns (bytes4) {}

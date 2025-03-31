@@ -6,9 +6,9 @@ interface IERC20 {
     function totalSupply() external view returns(uint256);
     function decimals() external view returns(uint8);
     function balanceOf(address mate) external view returns(uint256);
-    function transfer(address to, uint256 dubloons) external returns(bool);
-    function transferFrom(address from, address to, uint256 dubloons) external returns(bool);
-    function approve(address spender, uint256 dubloons) external returns(bool);
+    function transfer(address to, uint256 amount) external returns(bool);
+    function transferFrom(address from, address to, uint256 amount) external returns(bool);
+    function approve(address spender, uint256 amount) external returns(bool);
     function allowance(address mate, address spender) external view returns(uint256);
 }
 
@@ -22,10 +22,11 @@ interface IERC20x is IERC20 {
 }
 
 /* NN Core */
-interface INNETH is IERC20 {
+interface INNETH {
     function initialize(address _reserveToken, address market, address _debtToken, string memory _name, string memory _sym) external;
 
     // basic getters
+    function decimals() external view returns(uint8);
     function reserveToken() external returns(IERC20x);
     function aaveMarket() external returns(IAaveMarket);
     function aToken() external returns(IERC20x);
@@ -50,11 +51,10 @@ interface INNETH is IERC20 {
     function getExpectedHF() external returns(uint8);
     function price(address asset) external returns(uint256);
 
-    // function getAvailableCredit() external returns(uint256);
-    // function getTotalCredit() external returns(uint256);
-    // function getDebt() external returns(uint256);
-    // function getHF() external returns(uint256);
+    function reserveAssetPrice() external view returns(uint256);
+    function debtAssetPrice() external view returns(uint256);
 
+    function convertToDecimal(uint256 amount, uint8 currentDecimals, uint8 targetDecimals) external view returns(uint256);
 }
 
 interface IRevenueShareAgreement {
