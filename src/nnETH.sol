@@ -151,6 +151,7 @@ contract NNETH is INNETH, ERC20 {
 
     function _deposit(address owner, address receiver, uint256 dubloons, address city, address referrer) public {
         if(dubloons < MIN_DEPOSIT) revert BelowMinDeposit();
+        if(receiver == address(0)) revert InvalidReceiver();
         
         reserveToken.transferFrom(owner, address(this), dubloons);
         farm(reserveToken.balanceOf(address(this))); // scoop tokens sent directly too
@@ -217,6 +218,7 @@ contract NNETH is INNETH, ERC20 {
         _assertTreasury();
 
         uint256 currentCredit = credited[city];
+
         // type shit would be SOOOO smart to
         // deploy an RSA and have onchain interest + repayment tracking
         // currentCredit -> RSA address. Keep totalCreditDelegated for HF

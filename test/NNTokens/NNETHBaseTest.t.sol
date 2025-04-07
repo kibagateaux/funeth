@@ -75,7 +75,7 @@ contract NNETHBaseTest is Test {
         ); 
     }
 
-    function _depositnnEth(address user, uint256 amount) internal view returns (uint256 deposited) {
+    function _depositnnEth(address user, uint256 amount) internal returns (uint256 deposited) {
         deposited = _boundDepositAmount(amount, false);
 
         vm.startPrank(user);
@@ -85,7 +85,7 @@ contract NNETHBaseTest is Test {
     }
 
     /// @notice ensure enough collateral so we have credit > 0 so borrow() calls dont fail on 0.
-    function _depositForBorrowing(address user, uint256 amount) internal view returns (uint256 deposited) {
+    function _depositForBorrowing(address user, uint256 amount) internal returns (uint256 deposited) {
         vm.assume(user != address(0));
         deposited = _boundDepositAmount(amount, true);
 
@@ -128,7 +128,7 @@ contract NNETHBaseTest is Test {
     * @dev denominated in Aave protocol base asset decimals (8 decimals from Chainlink feed)
         NOT debtToken decimals so must convert for calculations on lend/borrow
     */
-    function _borrowable(uint256 nnethSupply) internal view returns (uint256 aaveTotalCredit, uint256 nnEthCreditLimit) {
+    function _borrowable(uint256 nnethSupply) internal returns (uint256 aaveTotalCredit, uint256 nnEthCreditLimit) {
         (,,,, uint256 ltvConfig,) = aave.getUserAccountData(address(nnETH));
 
         // Normal market doesnt return as it should so use AddressProvider to fetch oracle.

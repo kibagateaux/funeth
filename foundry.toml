@@ -1,7 +1,13 @@
 [profile.default]
+solc_version = "0.8.28"
+optimizer = true
+optimizer_runs = 1_000
+via_ir = true
+
 src = "src"
 out = "out"
 libs = ["lib"]
+
 
 [invariant]
 runs = 10 # 2000

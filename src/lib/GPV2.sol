@@ -18,13 +18,6 @@ library GPv2Order {
     /// @dev longer amont so we can check filledAmount. ensure price checks in isValidSignature
     uint256 internal constant MAX_TRADE_DEADLINE = 7 days;
 
-    event OrderInitiated(
-        bytes32 tradeHash,
-        uint32 deadline,
-        uint128 price
-    );
-    event OrderSettled(bytes32 tradeHash, uint128 price);
-
     error InvalidTradePrice();
     error InvalidTradeReceiver();
     error InvalidTradeDomain();
@@ -294,6 +287,13 @@ abstract contract GPv2Helper {
     /// @dev prevents crosschain replay attacks if we check isValidSignature against stored params
     mapping(bytes32 => OrderMetadata) public orderParams; // orderID -> settlement qualifications
 
+    event OrderInitiated(
+        bytes32 tradeHash,
+        uint32 deadline,
+        uint128 price
+    );
+    event OrderSettled(bytes32 tradeHash, uint128 price);
+    
        
     function isValidSignature(bytes32 _tradeHash, bytes calldata _encodedOrder) external virtual view returns (bytes4) {}
     function confirmSettlement(bytes calldata uid) public virtual {}
