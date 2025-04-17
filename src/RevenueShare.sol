@@ -1,7 +1,7 @@
 // pragma solidity ^0.8.26;
 
 // import {ERC20} from "solady/tokens/ERC20.sol";
-// import {INNETH, IERC20x, IAaveMarket, ReserveData, GPv2Order} from "./Interfaces.sol";
+// import {IFunETH, IERC20x, IAaveMarket, ReserveData, GPv2Order} from "./Interfaces.sol";
 
 // /**
 // * @title Revenue Share Agreemnt
@@ -9,7 +9,7 @@
 // * @notice Allows a borrower with revenue streams collateralized in a Spigot to borrow against them from a single lender
 // * Lender is guaranteed a specific return but payments are variable based on revenue and % split between borrower and lender.
 // * Claims on revenue are tokenized as ERC20 at 1:1 redemption rate for the credit token being lent/repaid.
-// * All claim tokens are minted immediately to the lender and must be burnt to claim credit tokens. 
+// * All claim tokens are minted immediately to the lender and must be burnt to claim credit tokens.
 // * Borrower or Lender can trade any revenue token at any time to the token owed to lender using CowSwap Smart Orders
 // * @dev - reference  https://github.com/charlesndalton/milkman/blob/main/contracts/Milkman.sol
 // */
@@ -55,7 +55,6 @@
 //     );
 //     event Deposit(address indexed lender);
 //     event TradeFinalized(bytes32 indexed tradeHash);
-
 
 //     using GPv2Order for GPv2Order.Data;
 //     uint8 internal constant MAX_REVENUE_SPLIT = 100;
@@ -153,7 +152,7 @@
 //             // repay() to account for the missing tokens.
 //             revert ExceedClaimableTokens(claimableAmount);
 //         }
-        
+
 //         // check that caller has approval on _owner tokens
 //         if(msg.sender != _owner) {
 //             uint256 allowed = allowance[_owner][msg.sender]; // Saves gas for limited approvals.
@@ -162,13 +161,13 @@
 //                 else allowance[_owner][msg.sender] -= _amount;
 //             }
 //         }
-        
+
 //         // anyone can redeem not restricted to original lender
 //         claimableAmount -= _amount;
 //         _burn(_owner, _amount);
 
 //         ERC20(creditToken).transfer(_to, _amount);
-        
+
 //         emit Redeem(_to, _owner, msg.sender, _amount);
 //         return true;
 //     }
@@ -181,11 +180,10 @@
 //     function claimRev(address _token) external returns(uint256 claimed) {
 //         claimed = spigot.claimOwnerTokens(_token);
 //         if(_token == creditToken) {
-//             // immediately paydown debt w/o trading if possible 
+//             // immediately paydown debt w/o trading if possible
 //             _repay();
 //         }
 //     }
-
 
 //     /**
 //     * @notice Gives Borrower AND Lender the ability to trade any revenue token into the token owed by lenders
@@ -229,14 +227,14 @@
 //     *         This is easier than using their ETH flow.
 //     *         We dont allow native ETH as creditToken so any ETH is revenue and should be wrapped.
 //     * @dev callable by anyone. no state change, MEV, exploit potential
-//     * @return amount - amount of ETH wrapped 
+//     * @return amount - amount of ETH wrapped
 //     */
 //     function wrap() external returns(uint256 amount) {
 //         uint256 initialBalance = WETH.balanceOf(address(this));
 //         amount = address(this).balance;
 
 //         WETH.deposit{value: amount}();
-        
+
 //         uint256 postBalance = WETH.balanceOf(address(this));
 //         if(postBalance - initialBalance != amount) {
 //             revert InvalidWETHDeposit();
@@ -279,9 +277,8 @@
 //             ERC20(_token).transfer(_to, balance);
 //         }
 
-        
 //         return true;
-//     }   
+//     }
 
 //     /**
 //     * @notice Lets Borrower reclaim their Spigot after paying off all their debt.
@@ -300,10 +297,10 @@
 //         }
 
 //         ISpigot(spigot).updateOwner(_to);
-        
+
 //         return true;
 //     }
-   
+
 //     function isValidSignature(bytes32 _tradeHash, bytes calldata _encodedOrder) external view returns (bytes4) {
 //         GPv2Order.Data memory _order = abi.decode(_encodedOrder, (GPv2Order.Data));
 
@@ -332,7 +329,7 @@
 //         }
 
 //         spigot.updateWhitelistedFunction(_whitelistedFunc, _allowed);
-        
+
 //         return true;
 //     }
 
@@ -350,13 +347,13 @@
 //         }
 
 //         spigot.addSpigot(revenueContract, ISpigot.Setting(lenderRevenueSplit, claimFunc, transferFunc));
-        
+
 //         return true;
 //     }
 
 //     /**
 //     * @notice Allows updating any revenue stream in Spigot to the agreed split.
-//     * Useful incase spigot configured before put into RSA 
+//     * Useful incase spigot configured before put into RSA
 //     * @param revenueContract - the contract to reset
 //     * @return bool - if update was successful
 //      */
@@ -402,25 +399,25 @@
 //         if(
 //             _deadline < block.timestamp ||
 //             _deadline > block.timestamp + MAX_TRADE_DEADLINE
-//         ) { 
+//         ) {
 //             revert InvalidTradeDeadline();
 //         }
 //     }
 
 //     function generateOrder(
-//         address _sellToken, 
-//         uint256 _sellAmount, 
-//         uint256 _minBuyAmount, 
+//         address _sellToken,
+//         uint256 _sellAmount,
+//         uint256 _minBuyAmount,
 //         uint32 _deadline
 //     )
 //         public view
-//         returns(GPv2Order.Data memory) 
+//         returns(GPv2Order.Data memory)
 //     {
 //         return GPv2Order.Data({
 //             kind: GPv2Order.KIND_SELL,  // market sell revenue tokens, dont specify zamount bought.
-//             receiver: address(this),    // hardcode so trades are trustless 
+//             receiver: address(this),    // hardcode so trades are trustless
 //             sellToken: _sellToken,
-//             buyToken: creditToken,      // hardcode so trades are trustless 
+//             buyToken: creditToken,      // hardcode so trades are trustless
 //             sellAmount: _sellAmount,
 //             buyAmount: _minBuyAmount,
 //             feeAmount: 0,
@@ -430,7 +427,7 @@
 //             sellTokenBalance: GPv2Order.BALANCE_ERC20,
 //             buyTokenBalance: GPv2Order.BALANCE_ERC20
 //         });
-//     }   
+//     }
 
 //     /**
 //     * @notice gets the contract to wrap chains native asset into ERC20 for trading.

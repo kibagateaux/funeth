@@ -7,9 +7,8 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {console} from "forge-std/console.sol";
 import {AddressSet, LibAddressSet} from "../helpers/AddressSet.sol";
 import {IERC20x} from "../../src/Interfaces.sol";
-import {NNETH} from "../../src/NNETH.sol";
-import {NNETHBaseTest} from "./NNETHBaseTest.t.sol";
-
+import {FunETH} from "../../src/FunETH.sol";
+import {FunETHBaseTest} from "./FunETHBaseTest.t.sol";
 
 uint256 constant ETH_SUPPLY = 120_500_000 ether;
 
@@ -19,7 +18,7 @@ contract ForcePush {
     }
 }
 
-contract Handler is NNETHBaseTest {
+contract Handler is FunETHBaseTest {
     using LibAddressSet for AddressSet;
 
     uint256 public ghost_depositSum;
@@ -52,8 +51,8 @@ contract Handler is NNETHBaseTest {
         _;
     }
 
-    constructor(NNETH _weth, address reserveToken) {
-        nnETH = _weth;
+    constructor(FunETH _weth, address reserveToken) {
+        funETH = _weth;
         token = reserveToken;
         deal(address(reserveToken), address(this), ETH_SUPPLY);
     }
@@ -64,17 +63,17 @@ contract Handler is NNETHBaseTest {
 
         vm.prank(currentActor);
         WETH.deposit{value: amount}();
-        nnETH.deposit(amount);
+        funETH.deposit(amount);
 
         ghost_depositSum += amount;
     }
 
     function withdraw(uint256 actorSeed, uint256 amount) public useActor(actorSeed) countCall("withdraw") {
-        amount = bound(amount, 0, nnETH.balanceOf(currentActor));
+        amount = bound(amount, 0, funETH.balanceOf(currentActor));
         if (amount == 0) ghost_zeroWithdrawals++;
 
         vm.startPrank(currentActor);
-        nnETH.withdraw(amount);
+        funETH.withdraw(amount);
         _pay(address(this), amount);
         vm.stopPrank();
 
@@ -89,7 +88,7 @@ contract Handler is NNETHBaseTest {
         address spender = _actors.rand(spenderSeed);
 
         vm.prank(currentActor);
-        nnETH.approve(spender, amount);
+        funETH.approve(spender, amount);
     }
 
     function transfer(uint256 actorSeed, uint256 toSeed, uint256 amount)
@@ -99,11 +98,11 @@ contract Handler is NNETHBaseTest {
     {
         address to = _actors.rand(toSeed);
 
-        amount = bound(amount, 0, nnETH.balanceOf(currentActor));
+        amount = bound(amount, 0, funETH.balanceOf(currentActor));
         if (amount == 0) ghost_zeroTransfers++;
 
         vm.prank(currentActor);
-        nnETH.transfer(to, amount);
+        funETH.transfer(to, amount);
     }
 
     function transferFrom(uint256 actorSeed, uint256 fromSeed, uint256 toSeed, bool _approve, uint256 amount)
@@ -114,18 +113,18 @@ contract Handler is NNETHBaseTest {
         address from = _actors.rand(fromSeed);
         address to = _actors.rand(toSeed);
 
-        amount = bound(amount, 0, nnETH.balanceOf(from));
+        amount = bound(amount, 0, funETH.balanceOf(from));
 
         if (_approve) {
             vm.prank(from);
-            nnETH.approve(currentActor, amount);
+            funETH.approve(currentActor, amount);
         } else {
-            amount = bound(amount, 0, nnETH.allowance(from, currentActor));
+            amount = bound(amount, 0, funETH.allowance(from, currentActor));
         }
         if (amount == 0) ghost_zeroTransferFroms++;
 
         vm.prank(currentActor);
-        nnETH.transferFrom(from, to, amount);
+        funETH.transferFrom(from, to, amount);
     }
 
     function sendFallback(uint256 amount) public createActor countCall("sendFallback") {
@@ -133,14 +132,15 @@ contract Handler is NNETHBaseTest {
         _pay(currentActor, amount);
 
         vm.prank(currentActor);
-        _pay(address(nnETH), amount);
+        _pay(address(funETH), amount);
 
         ghost_depositSum += amount;
     }
 
+    // TODO test functionality on funETH + nnUSDC
     // function forcePush(uint256 amount) public countCall("forcePush") {
     //     amount = bound(amount, 0, address(this).balance);
-    //     new ForcePush{ value: amount }(address(nnETH));
+    //     new ForcePush{ value: amount }(address(funETH));
     //     ghost_forcePushSum += amount;
     // }
 
@@ -181,7 +181,7 @@ contract Handler is NNETHBaseTest {
     }
 
     function _pay(address to, uint256 amount) internal {
-        if(token == address(0)) {
+        if (token == address(0)) {
             (bool s,) = to.call{value: amount}("");
             require(s, "pay() failed");
         } else {

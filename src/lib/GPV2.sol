@@ -1,10 +1,12 @@
+pragma solidity ^0.8.26;
+
 import {IGPSettlement} from "../Interfaces.sol";
 
 /* GNOSIS PROTOCOL / COW SWAP ORDERS */
 // https://github.com/gnosis/gp-v2-contracts/blob/main/src/contracts/libraries/GPv2Trade.sol
 library GPv2Order {
     // custom additions to standard lib Gnosis lib (from milkman contract)
-    bytes4 internal constant ERC_1271_MAGIC_VALUE =  0x1626ba7e;
+    bytes4 internal constant ERC_1271_MAGIC_VALUE = 0x1626ba7e;
     bytes4 internal constant ERC_1271_NON_MAGIC_VALUE = 0xffffffff;
     /// @notice The contract that settles all trades. Must approve sell tokens to this address.
     /// @dev Same address acorss all chains
@@ -66,8 +68,7 @@ library GPv2Order {
     ///     ")"
     /// )
     /// ```
-    bytes32 internal constant TYPE_HASH =
-        hex"d5a25ba2e97094ad7d83dc28a6572da797d6b3e7fc6663bd93efb789fc17e489";
+    bytes32 internal constant TYPE_HASH = hex"d5a25ba2e97094ad7d83dc28a6572da797d6b3e7fc6663bd93efb789fc17e489";
 
     /// @dev The marker value for a sell order for computing the order struct
     /// hash. This allows the EIP-712 compatible wallets to display a
@@ -77,8 +78,7 @@ library GPv2Order {
     /// ```
     /// keccak256("sell")
     /// ```
-    bytes32 internal constant KIND_SELL =
-        hex"f3b277728b3fee749481eb3e0b3b48980dbbab78658fc419025cb16eee346775";
+    bytes32 internal constant KIND_SELL = hex"f3b277728b3fee749481eb3e0b3b48980dbbab78658fc419025cb16eee346775";
 
     /// @dev The OrderKind marker value for a buy order for computing the order
     /// struct hash.
@@ -87,8 +87,7 @@ library GPv2Order {
     /// ```
     /// keccak256("buy")
     /// ```
-    bytes32 internal constant KIND_BUY =
-        hex"6ed88e868af0a1983e3886d5f3e95a2fafbd6c3450bc229e27342283dc429ccc";
+    bytes32 internal constant KIND_BUY = hex"6ed88e868af0a1983e3886d5f3e95a2fafbd6c3450bc229e27342283dc429ccc";
 
     /// @dev The TokenBalance marker value for using direct ERC20 balances for
     /// computing the order struct hash.
@@ -97,8 +96,7 @@ library GPv2Order {
     /// ```
     /// keccak256("erc20")
     /// ```
-    bytes32 internal constant BALANCE_ERC20 =
-        hex"5a28e9363bb942b639270062aa6bb295f434bcdfc42c97267bf003f272060dc9";
+    bytes32 internal constant BALANCE_ERC20 = hex"5a28e9363bb942b639270062aa6bb295f434bcdfc42c97267bf003f272060dc9";
 
     /// @dev The TokenBalance marker value for using Balancer Vault external
     /// balances (in order to re-use Vault ERC20 approvals) for computing the
@@ -108,8 +106,7 @@ library GPv2Order {
     /// ```
     /// keccak256("external")
     /// ```
-    bytes32 internal constant BALANCE_EXTERNAL =
-        hex"abee3b73373acd583a130924aad6dc38cfdc44ba0555ba94ce2ff63980ea0632";
+    bytes32 internal constant BALANCE_EXTERNAL = hex"abee3b73373acd583a130924aad6dc38cfdc44ba0555ba94ce2ff63980ea0632";
 
     /// @dev The TokenBalance marker value for using Balancer Vault internal
     /// balances for computing the order struct hash.
@@ -118,8 +115,7 @@ library GPv2Order {
     /// ```
     /// keccak256("internal")
     /// ```
-    bytes32 internal constant BALANCE_INTERNAL =
-        hex"4ac99ace14ee0a5ef932dc609df0943ab7ac16b7583634612f8dc35a4289a6ce";
+    bytes32 internal constant BALANCE_INTERNAL = hex"4ac99ace14ee0a5ef932dc609df0943ab7ac16b7583634612f8dc35a4289a6ce";
 
     /// @dev Marker address used to indicate that the receiver of the trade
     /// proceeds should the owner of the order.
@@ -136,11 +132,7 @@ library GPv2Order {
     /// it is the same as the order owner.
     ///
     /// @return receiver The actual receiver of trade proceeds.
-    function actualReceiver(Data memory order, address owner)
-        internal
-        pure
-        returns (address receiver)
-    {
+    function actualReceiver(Data memory order, address owner) internal pure returns (address receiver) {
         if (order.receiver == RECEIVER_SAME_AS_OWNER) {
             receiver = owner;
         } else {
@@ -153,11 +145,7 @@ library GPv2Order {
     /// @param order The order to compute the EIP-712 signing hash for.
     /// @param domainSeparator The EIP-712 domain separator to use.
     /// @return orderDigest The 32 byte EIP-712 struct hash.
-    function hash(Data memory order, bytes32 domainSeparator)
-        internal
-        pure
-        returns (bytes32 orderDigest)
-    {
+    function hash(Data memory order, bytes32 domainSeparator) internal pure returns (bytes32 orderDigest) {
         bytes32 structHash;
 
         // NOTE: Compute the EIP-712 order struct hash in place. As suggested
@@ -199,12 +187,10 @@ library GPv2Order {
     /// parameters.
     /// @param owner The address of the user who owns this order.
     /// @param validTo The epoch time at which the order will stop being valid.
-    function packOrderUidParams(
-        bytes memory orderUid,
-        bytes32 orderDigest,
-        address owner,
-        uint32 validTo
-    ) internal pure {
+    function packOrderUidParams(bytes memory orderUid, bytes32 orderDigest, address owner, uint32 validTo)
+        internal
+        pure
+    {
         require(orderUid.length == UID_LENGTH, "GPv2: uid buffer overflow");
 
         // NOTE: Write the order UID to the allocated memory buffer. The order
@@ -250,11 +236,7 @@ library GPv2Order {
     function extractOrderUidParams(bytes calldata orderUid)
         internal
         pure
-        returns (
-            bytes32 orderDigest,
-            address owner,
-            uint32 validTo
-        )
+        returns (bytes32 orderDigest, address owner, uint32 validTo)
     {
         require(orderUid.length == UID_LENGTH, "GPv2: invalid uid");
 
@@ -267,17 +249,17 @@ library GPv2Order {
         }
     }
 
-    /** 
+    /**
      * @notice returns amount of tokens sold, not bought, in the order.
      */
-    function settledAmount(bytes calldata _orderID, uint32 deadline) public view returns (uint256) {
-        bytes memory _orderUid = abi.encodePacked(_orderID, address(this), deadline);
-        return IGPSettlement(COWSWAP_SETTLEMENT_ADDRESS).filledAmount(_orderUid);
+    function settledAmount(bytes calldata uid) internal view returns (uint256) {
+        return IGPSettlement(COWSWAP_SETTLEMENT_ADDRESS).filledAmount(uid);
     }
 }
 
 abstract contract GPv2Helper {
     using GPv2Order for GPv2Order.Data;
+
     struct OrderMetadata {
         uint32 deadline;
         uint64 ownerID; // todo uint256
@@ -287,14 +269,14 @@ abstract contract GPv2Helper {
     /// @dev prevents crosschain replay attacks if we check isValidSignature against stored params
     mapping(bytes32 => OrderMetadata) public orderParams; // orderID -> settlement qualifications
 
-    event OrderInitiated(
-        bytes32 tradeHash,
-        uint32 deadline,
-        uint128 price
-    );
+    event OrderInitiated(bytes32 tradeHash, uint32 deadline, uint128 price);
     event OrderSettled(bytes32 tradeHash, uint128 price);
-    
-       
-    function isValidSignature(bytes32 _tradeHash, bytes calldata _encodedOrder) external virtual view returns (bytes4) {}
-    function confirmSettlement(bytes calldata uid) public virtual {}
+
+    function isValidSignature(bytes32 _tradeHash, bytes calldata _encodedOrder)
+        external
+        view
+        virtual
+        returns (bytes4)
+    {}
+    function confirmSettlement(bytes calldata uid) public virtual returns (uint256) {}
 }
