@@ -29,7 +29,7 @@ contract FunETH is IFunETH, ERC20 {
     uint8 internal _decimals;
     /// @notice totalSupply() = total reserveToken deposited, denominated in reserve decimals.
 
-    // TODO these necessary?
+    // TODO these necessary? outside of testing?
     /// @notice full decimal offset between reserveToken and aToken e.g. 1e10 not 10
     uint256 public reserveVsATokenDecimalOffset;
     /// @notice decimals for token we borrow for use in HF calculations
@@ -131,14 +131,7 @@ contract FunETH is IFunETH, ERC20 {
         }
 
         // assumes aave debt token decimals = actual debt asset token decimals
-        // try  debtToken.decimals() returns (uint8 dec) {
-        // console.log("debtTokenDecimals", dec);
         debtTokenDecimals = debtToken.decimals();
-        //     return;
-        // } catch (bytes memory _err) {
-        //     revert(_err);
-        //     // debtTokenDecimals = 18;
-        // }
 
         // Would make sense to do here but reverts if caller has no collateral yet
         // aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);

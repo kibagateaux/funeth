@@ -4,7 +4,7 @@ import {FunETH} from "../../src/FunETH.sol";
 import {GPv2Order} from "../../src/lib/GPV2.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {IERC20x, IAaveMarket, IFunETH, IGPSettlement} from "../../src/Interfaces.sol";
-import {FunETHBaseTest} from "../NNTokens/FunETHBaseTest.t.sol";
+import {FunETHBaseTest} from "../FunTokens/FunETHBaseTest.t.sol";
 import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
 import {FunCityLandRegistry} from "../../src/FunCityLandRegistry.sol";
 
@@ -28,7 +28,7 @@ contract NNRegistryCoreTest is FunETHBaseTest {
         registry.addCity(city, 1);
     }
 
-    function test_constructor_revertsOnInvalidNNTokens() public {
+    function test_constructor_revertsOnInvalidFunTokens() public {
         // reset for init test
         vm.expectRevert(); // silent revert on to address with no reserveToken()
         new FunCityLandRegistry(address(0), address(nnUSDC), curator);

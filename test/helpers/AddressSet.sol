@@ -5,6 +5,22 @@ import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
 
 library EnumerableSetUsage {
     using EnumerableSetLib for *;
+    // private helpers from EnumerableSetLib
+        /// @dev Casts to a Bytes32Set.
+    function _toBytes32Set(EnumerableSetLib.Uint256Set storage s) public pure returns (EnumerableSetLib.Bytes32Set storage c) {
+        /// @solidity memory-safe-assembly
+        assembly {
+            c.slot := s.slot
+        }
+    }
+
+    /// @dev Casts to a Bytes32Set.
+    function _toBytes32Set(EnumerableSetLib.Int256Set storage s) public pure returns (EnumerableSetLib.Bytes32Set storage c) {
+        /// @solidity memory-safe-assembly
+        assembly {
+            c.slot := s.slot
+        }
+    }
 
     function rand(EnumerableSetLib.Bytes32Set storage s, uint256 seed) internal view returns (bytes32) {
         if (s.length() > 0) {
@@ -32,11 +48,11 @@ library EnumerableSetUsage {
     }
 
     function rand(EnumerableSetLib.Uint256Set storage s, uint256 seed) internal view returns (uint256) {
-        return uint256(rand(s._toBytes32Set(), seed));
+        return uint256(rand(_toBytes32Set(s), seed));
     }
 
     function forEach(EnumerableSetLib.Uint256Set storage s, function(bytes32) external func) internal {
-        forEach(s._toBytes32Set(), func);
+        forEach(_toBytes32Set(s), func);
     }
 
     function reduce(
@@ -44,22 +60,22 @@ library EnumerableSetUsage {
         uint256 acc,
         function(uint256,bytes32) external returns (uint256) func
     ) internal returns (uint256) {
-        return reduce(s._toBytes32Set(), acc, func);
+        return reduce(_toBytes32Set(s), acc, func);
     }
 
     // function rand(EnumerableSetLib.AddressSet storage s, uint256 seed) internal view returns (address) {
-    //    return address(rand(s._toBytes32Set(), seed));
+    //    return address(rand(_toBytes32Set(s), seed));
     // }
 
     // function forEach(EnumerableSetLib.AddressSet storage s, function(bytes32) external func) internal returns (EnumerableSetLib.AddressSet storage a) {
-    //     forEach(s._toBytes32Set(), func).slot;
+    //     forEach(_toBytes32Set(s), func).slot;
     // }
 
     // function reduce(EnumerableSetLib.AddressSet storage s, uint256 acc, function(uint256,bytes32) external returns (uint256) func)
     //     internal
     //     returns (uint256)
     // {
-    //     return reduce(s._toBytes32Set(), acc, func);
+    //     return reduce(_toBytes32Set(s), acc, func);
     // }
 }
 
