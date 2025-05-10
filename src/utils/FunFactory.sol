@@ -3,11 +3,11 @@ pragma solidity ^0.8.26;
 
 import {LibClone} from "solady/utils/LibClone.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {IFunETH, IRevenueShareAgreement, IFunCityLandRegistry} from "../Interfaces.sol";
+import {IFunETH, IFunFunding, IFunCityLandRegistry} from "../Interfaces.sol";
 
 import {FunETH} from "../FunETH.sol";
 import {FunCityLandRegistry} from "../FunCityLandRegistry.sol";
-import {RevenueShareAgreement} from "./FunFunding.sol";
+import {FunFunding} from "./FunFunding.sol";
 
 contract FunFactory is Ownable {
     address immutable aaveMarket;
@@ -28,7 +28,7 @@ contract FunFactory is Ownable {
         _initializeOwner(msg.sender);
 
         funTokenImplementation = address(new FunETH());
-        rsaImplementation = address(new RevenueShareAgreement());
+        rsaImplementation = address(new FunFunding());
     }
 
     function initLandRegistry(address curator) public onlyOwner {
@@ -42,9 +42,9 @@ contract FunFactory is Ownable {
         return clone;
     }
 
-    function deployRevenueShareAgreement(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol) public returns (address) {
+    function deployFunFunding(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol) public returns (address) {
         address clone = LibClone.cloneDeterministic(rsaImplementation, keccak256(abi.encodePacked(name)));
-        IRevenueShareAgreement(clone).initialize(borrower, WETH, loanToken, apr, name, symbol);
+        IFunFunding(clone).initialize(borrower, WETH, loanToken, apr, name, symbol);
         return clone;
     }
 

@@ -2,7 +2,7 @@
 
 // import "forge-std/Test.sol";
 // import {GPv2Order} from "../../src/lib/GPv2.sol";
-// import {RevenueShareAgreement} from "../../src/utils/FunFunding.sol";
+// import {FunFunding} from "../../src/utils/FunFunding.sol";
 
 // contract RSACowSwapIntegrationTest is Test {
 //     using GPv2Order for GPv2Order.Data;
@@ -172,7 +172,7 @@
 //         bytes32 expectedOrderId = order.hash(COWSWAP_DOMAIN_SEPARATOR);
 //         assertEq(rsa.orders(expectedOrderId), 0);
 
-//         // vm.expectRevert(RevenueShareAgreement.InvalidTradeId.selector);
+//         // vm.expectRevert(FunFunding.InvalidTradeId.selector);
 
 //         // orderId is the signed orderdata
 //         assertEq(rsa.isValidSignature(expectedOrderId, abi.encode(order)), ERC_1271_NON_MAGIC_VALUE);
@@ -238,7 +238,7 @@
 
 //     function test_deposit_emitsDepositEvent() public {
 //         vm.expectEmit(true, true, false, true, address(rsa));
-//         emit RevenueShareAgreement.Deposit(lender);
+//         emit FunFunding.Deposit(lender);
 //         _depositRSA(lender, rsa);
 //     }
 
@@ -247,7 +247,7 @@
 //         creditToken.mint(address(rsa), _amount);
 //         vm.expectEmit(true, true, true, true, address(rsa));
 //         uint256 claimble = _amount > totalOwed ? totalOwed : _amount;
-//         emit RevenueShareAgreement.Repay(claimble);
+//         emit FunFunding.Repay(claimble);
 //         rsa.repay();
 //     }
 
@@ -257,7 +257,7 @@
 //         (uint256 claimed, ) = _generateRevenue(creditToken, revAmount);
 //         uint256 claimable = claimed > totalOwed ? totalOwed : claimed;
 //         vm.expectEmit(true, true, false, false, address(rsa));
-//         emit RevenueShareAgreement.Repay(claimable);
+//         emit FunFunding.Repay(claimable);
 //         rsa.claimRev(address(creditToken));
 //     }
 
@@ -269,7 +269,7 @@
 
 //         vm.prank(lender);
 //         vm.expectEmit(true, true, false, true, address(rsa));
-//         emit RevenueShareAgreement.Redeem(lender, lender, lender, 1);
+//         emit FunFunding.Redeem(lender, lender, lender, 1);
 //         rsa.redeem(lender, lender, 1);
 //         vm.stopPrank();
 //     }
@@ -282,7 +282,7 @@
 
 //         vm.startPrank(lender);
 //         vm.expectEmit(true, true, true, true, address(rsa));
-//         emit RevenueShareAgreement.OrderInitiated(address(creditToken), address(revenueToken), orderId, 1, 0, deadline);
+//         emit FunFunding.OrderInitiated(address(creditToken), address(revenueToken), orderId, 1, 0, deadline);
 //         rsa.initiateOrder(address(revenueToken), 1, 0, deadline);
 //         assertEq(rsa.orders(orderId), deadline);
 //         vm.stopPrank();

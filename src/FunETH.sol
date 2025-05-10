@@ -1,7 +1,7 @@
 pragma solidity ^0.8.26;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
-import {IFunETH, IERC20x, IAaveMarket, ReserveData, IFunFactory, IRevenueShareAgreement} from "./Interfaces.sol";
+import {IFunETH, IERC20x, IAaveMarket, ReserveData, IFunFactory, IFunFunding} from "./Interfaces.sol";
 
 contract FunETH is IFunETH, ERC20 {
     // from solady/ERC20 for increaseAllowance (important for LandRegistry security)
@@ -239,7 +239,7 @@ contract FunETH is IFunETH, ERC20 {
 
         // totalCreditDelegated += dubloons;
 
-        IRevenueShareAgreement rsa = IRevenueShareAgreement(factory.deployRevenueShareAgreement(
+        IFunFunding rsa = IFunFunding(factory.deployFunFunding(
             city,
             debtAsset,
             apr,
@@ -269,7 +269,7 @@ contract FunETH is IFunETH, ERC20 {
         if(creditInfo.rsa == address(0)) revert CityNotLent();
         if(dubloons > creditInfo.owed) revert InvalidLoanClaim();
 
-        try IRevenueShareAgreement(creditInfo.rsa).redeem(dubloons, address(this), address(this)) {
+        try IFunFunding(creditInfo.rsa).redeem(dubloons, address(this), address(this)) {
             ERC20(debtAsset).approve(address(aaveMarket), dubloons);
             aaveMarket.repay(debtAsset, dubloons, AAVE_INTEREST_MODE, address(this));
 

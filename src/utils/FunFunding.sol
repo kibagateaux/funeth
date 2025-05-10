@@ -17,7 +17,7 @@ import {IFunETH, IERC20x, IFunFactory, IAaveMarket, ReserveData} from "../Interf
 * Borrower or Lender can trade any revenue token at any time to the token owed to lender using CowSwap Smart Orders
 * @dev - reference  https://github.com/charlesndalton/milkman/blob/main/contracts/Milkman.sol
 */
-contract RevenueShareAgreement is ERC20, Ownable {
+contract FunFunding is ERC20, Ownable {
     using GPv2Order for GPv2Order.Data;
     enum STATUS { INACTIVE, INIT, ACTIVE, REPAID, CANCELED }
 

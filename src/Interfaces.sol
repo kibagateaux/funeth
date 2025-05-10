@@ -73,7 +73,7 @@ interface IFunCityLandRegistry {
     function initialize(address funETH, address funUSDC, address curator) external;
 }
 
-interface IRevenueShareAgreement is IERC20 {
+interface IFunFunding is IERC20 {
     error AlreadyInitialized();
 
     function initialize(
@@ -91,11 +91,17 @@ interface IRevenueShareAgreement is IERC20 {
     function initiateTerm() external;
     function cancel() external;
     function completeTerm() external;
+
+    function status() external view returns (uint256);
+    function rewardRate() external view returns (uint256);
+    function totalOwed() external view returns (uint256);
+    function totalSupply() external view returns (uint256);
+    function balanceOf(address mate) external view returns (uint256);
 }
 
 interface IFunFactory {
     function deployFunToken(address reserveToken, address debtToken, string memory name, string memory symbol) external returns (address);
-    function deployRevenueShareAgreement(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol) external returns (address);
+    function deployFunFunding(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol) external returns (address);
     function deployLandRegistry(address curator) external returns (address);
 
     function setDefaultFunTokens(address _funETH, address _funUSDC) external;

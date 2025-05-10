@@ -5,12 +5,12 @@ import "forge-std/Test.sol";
 
 import {MockToken} from "../helpers/MockToken.sol";
 import { FunFactory } from "../../src/utils/FunFactory.sol";
-import { RevenueShareAgreement } from "../../src/utils/FunFunding.sol";
+import { FunFunding } from "../../src/utils/FunFunding.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import { MockFeeGenerator } from "../helpers/MockFeeGenerator.sol";
 
 import {GPv2Order} from "../../src/lib/GPv2.sol";
-import { IERC20x, IRevenueShareAgreement } from "../../src/Interfaces.sol";
+import { IERC20x, IFunFunding } from "../../src/Interfaces.sol";
 
 // TODO add general 4626 test
 // https://github.com/a16z/erc4626-tests
@@ -39,7 +39,7 @@ import { IERC20x, IRevenueShareAgreement } from "../../src/Interfaces.sol";
 
 // TODO totalOwed() will be bigger than i expect bc fees, can just do Qe bc we have math for the exact conversion
 
-contract RevenueShareAgreementTest is Test {
+contract FunFundingTest is Test {
     using GPv2Order for GPv2Order.Data;
 
     address constant private ETH = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
@@ -64,7 +64,7 @@ contract RevenueShareAgreementTest is Test {
 
     // RSA + Spigot stakeholder
     FunFactory factory;
-    RevenueShareAgreement private rsa;
+    FunFunding private rsa;
     uint16 private apr;
     address public funNetwork;
     address private borrower;
@@ -117,7 +117,7 @@ contract RevenueShareAgreementTest is Test {
 
         // deal terms
         assertEq(address(creditToken), address(rsa.asset()));
-        assertEq(uint8(rsa.status()), uint8(RevenueShareAgreement.STATUS.INIT));
+        assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.INIT));
         assertEq(rsa.rewardRate(), apr + 10_000);
         // TODO accurate until fees added. make more explicit?
         assertEq(0, rsa.totalOwed());
@@ -126,8 +126,8 @@ contract RevenueShareAgreementTest is Test {
     }
 
     function test_initialize_mustBorrowNonNullAddress() public {
-        vm.expectRevert(RevenueShareAgreement.InvalidBorrowerAddress.selector);
-        factory.deployRevenueShareAgreement(
+        vm.expectRevert(FunFunding.InvalidBorrowerAddress.selector);
+        factory.deployFunFunding(
             address(0),
             address(creditToken),
             52,
@@ -315,7 +315,7 @@ contract RevenueShareAgreementTest is Test {
         vm.prank(depositor);
         if(redeemed > revenue) {
             vm.expectRevert(abi.encodeWithSelector(
-                RevenueShareAgreement.ExceedClaimableTokens.selector,
+                FunFunding.ExceedClaimableTokens.selector,
                 revenue
             ));
         }
@@ -496,7 +496,7 @@ contract RevenueShareAgreementTest is Test {
     * probably at a deep discount e.g 1/5th of the value of the underlying revenue
     */
     function test_deposit_with0APR() public {
-        RevenueShareAgreement _rsa = RevenueShareAgreement(_initRSA(
+        FunFunding _rsa = FunFunding(_initRSA(
             address(creditToken),
             0
         ));
@@ -510,7 +510,7 @@ contract RevenueShareAgreementTest is Test {
 
     function test_repay_revertsBeforeInitiateTerm() public {
         _depositRSA(depositor, rsa, 0.1 ether);
-        vm.expectRevert(RevenueShareAgreement.InvalidStatus.selector);
+        vm.expectRevert(FunFunding.InvalidStatus.selector);
         _generateRevenue(creditToken, MAX_REVENUE);// repay() in generateRevenue()
         
         _initRSA(rsa);
@@ -663,7 +663,7 @@ contract RevenueShareAgreementTest is Test {
         // rsa.claimOperatorTokens(address(creditToken));
 
         vm.expectEmit(true, true, true, true);
-        emit RevenueShareAgreement.Repay(0);
+        emit FunFunding.Repay(0);
         _generateRevenue(creditToken, _revenue);
 
         assertEq(0, rsa.totalOwed());
@@ -703,7 +703,6 @@ contract RevenueShareAgreementTest is Test {
     function test_sweep_sendsFullRevenueTokenBalance() public {
         deal(address(revenueToken), address(rsa), 1000);
         uint256 preBalance = revenueToken.balanceOf(address(rsa));
-        // assertEq(preBalance, 1000);
 
         vm.startPrank(borrower);
         rsa.sweep(address(revenueToken), rando);
@@ -790,7 +789,7 @@ contract RevenueShareAgreementTest is Test {
 
         // no depositor so no debt
         assertEq(rsa.totalOwed(), 0); // totalOwed not updated because not init and no deposits
-        assertEq(uint8(rsa.status()), uint8(RevenueShareAgreement.STATUS.INIT));
+        assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.INIT));
         vm.startPrank(borrower);
         rsa.sweep(address(revenueToken), borrower);
         assertEq(0, revenueToken.balanceOf(address(rsa)));
@@ -802,12 +801,12 @@ contract RevenueShareAgreementTest is Test {
 
         _depositRSA(depositor, rsa, 0.1 ether);
         _initRSA(rsa);
-        assertEq(uint8(rsa.status()), uint8(RevenueShareAgreement.STATUS.ACTIVE));
+        assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.ACTIVE));
         
         // repay full  debt
         deal(address(creditToken),address(rsa), rsa.totalOwed());
         rsa.repay();
-        assertEq(uint8(rsa.status()), uint8(RevenueShareAgreement.STATUS.REPAID));
+        assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.REPAID));
 
         deal(address(revenueToken), address(rsa), 1000);
         uint256 preBalance2 = revenueToken.balanceOf(address(rsa));
@@ -844,7 +843,7 @@ contract RevenueShareAgreementTest is Test {
         uint256 preBalance2 = revenueToken.balanceOf(address(rsa));
 
         vm.startPrank(borrower);
-        vm.expectRevert(RevenueShareAgreement.CantSweepWhileInDebt.selector);
+        vm.expectRevert(FunFunding.CantSweepWhileInDebt.selector);
         rsa.sweep(address(revenueToken), borrower);
         vm.stopPrank();
 
@@ -872,8 +871,8 @@ contract RevenueShareAgreementTest is Test {
     function _initRSA(
         address _token,
         uint16 _apr
-    ) internal returns(RevenueShareAgreement newRSA) {
-        address _newRSA = factory.deployRevenueShareAgreement(
+    ) internal returns(FunFunding newRSA) {
+        address _newRSA = factory.deployFunFunding(
             borrower,
             _token,
             _apr,
@@ -884,19 +883,19 @@ contract RevenueShareAgreementTest is Test {
 
         // emit log_named_address("borrower", borrower);
 
-        // emit log_named_address("owner", RevenueShareAgreement(_newRSA).owner());
+        // emit log_named_address("owner", FunFunding(_newRSA).owner());
 
-        return RevenueShareAgreement(_newRSA);
+        return FunFunding(_newRSA);
     }
 
-    function _initRSA(RevenueShareAgreement _rsa) internal {
+    function _initRSA(FunFunding _rsa) internal {
         vm.prank(_rsa.owner());
         _rsa.initiateTerm();
     }
 
     function _depositRSA(
         address _depositor,
-        RevenueShareAgreement _rsa,
+        FunFunding _rsa,
         uint256 amount
     ) internal returns(uint256 shares) {
         // uint256 amount = _rsa.totalOwed(); no longer set on initialize()
