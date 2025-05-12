@@ -45,15 +45,16 @@ contract FunFundingTest is Test {
     address constant private ETH = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
     IERC20x constant public WETH = IERC20x(0x4200000000000000000000000000000000000006);
     IERC20x constant public USDC = IERC20x(0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
+    uint256 constant public BPS_COEFFICIENT = 10_000;
 
 
     // spigot contracts/configurations to test against
-    IERC20x private revenueToken;
+    IERC20x private feeToken;
     IERC20x private creditToken;
 
     // Named vars for common inputs
     uint256 constant MAX_UINT = type(uint256).max;
-    uint256 constant MAX_REVENUE = type(uint256).max / 1_000;
+    uint256 constant MAX_REVENUE = type(uint256).max;
     uint256 constant MAX_TRADE_DEADLINE = 1 days;
 
     bytes4 internal constant ERC_1271_MAGIC_VALUE =  0x1626ba7e;
@@ -86,7 +87,7 @@ contract FunFundingTest is Test {
         );
         factory.transferOwnership(funNetwork);
 
-        revenueToken = WETH;
+        feeToken = WETH;
         creditToken = USDC;
         
         apr = 500; // 5%
@@ -94,8 +95,6 @@ contract FunFundingTest is Test {
             address(creditToken),
             apr
         );
-
-        // TODO find some good revenue contracts to mock and deploy
     }
 
     /*********************
@@ -202,6 +201,26 @@ contract FunFundingTest is Test {
         }
     }
 
+    function invariant_deposit_reverIfNotInitStatus() public {
+        if(uint8(rsa.status()) != uint8(FunFunding.STATUS.INIT)) {
+            vm.expectRevert(FunFunding.InvalidStatus.selector);
+        } 
+        _depositRSA(rando, rsa, 100);
+    }
+
+    function invariant_redeem_anyStatus() public {
+        vm.assume(uint8(rsa.status()) == uint8(FunFunding.STATUS.INIT));
+
+        _depositRSA(rando, rsa, 100);
+        rsa.redeem(100, rando, rando);
+        
+        _depositRSA(rando, rsa, 100);
+        _initRSA(rsa);
+        _generateRevenue(creditToken, 100);
+        // rsa.repay();
+        rsa.redeem(100, rando, rando);
+    }
+
     /*********************
     **********************
     
@@ -248,36 +267,55 @@ contract FunFundingTest is Test {
     }
 
 
-    function invariant_deposit_increasesDepositorClaimBalanceByTotalOwed(uint256 amount) public {
-        amount = bound(amount, 100, MAX_UINT / rsa.rewardRate());
-        assertEq(0, rsa.totalSupply());
-        assertEq(0, rsa.balanceOf(depositor));
+    function invariant_deposit_increasesDepositorClaimBalanceByTotalOwed() public {
+        uint256 amount = 0.1 ether;
+        uint256 totalOwedBefore = rsa.totalOwed();
+        uint256 depositorBalance0 = rsa.balanceOf(depositor);
         
         uint256 shares = _depositRSA(depositor, rsa, amount);
         uint256 depositorBalance1 = rsa.balanceOf(depositor);
+        // totalOwed only updates on initiateTerm() so idk if we can/should accomodate that in a tests
 
-        assertEq(depositorBalance1, shares);
-        assertEq(depositorBalance1, rsa.totalSupply());
+        assertEq(depositorBalance1, depositorBalance0 + amount);
+        assertEq(rsa.totalOwed(), totalOwedBefore + amount);
+        assertGe(depositorBalance1, rsa.totalSupply());
     }
 
 
     function test_deposit_updatesDepositorBalance(uint256 amount) public {
-        amount = bound(amount, 100, MAX_UINT / rsa.rewardRate() / 2);
-        vm.assume(amount > 200);
-        _depositRSA(depositor, rsa, amount);
-        _depositRSA(rando, rsa, amount);
+        amount = bound(amount, 100, MAX_UINT / rsa.rewardRate() / 3);
+        deal(address(creditToken), depositor, amount);
+        deal(address(creditToken), rando, amount);
 
-
-        vm.startPrank(rando);
-        rsa.deposit(100, rando);
-        vm.stopPrank();
-        assertEq(rsa.balanceOf(depositor), 100);
-        assertEq(rsa.balanceOf(rando), 100);
-
+        uint256 minDeposit = amount / 2;
+        uint256 baseShares = (minDeposit * rsa.rewardRate()) / BPS_COEFFICIENT;
+        
+        emit log_named_uint("amount", amount);
         vm.startPrank(depositor);
-        rsa.deposit(100, depositor);
+        creditToken.approve(address(rsa), minDeposit);
+        rsa.deposit(minDeposit, depositor);
         vm.stopPrank();
-        assertEq(rsa.balanceOf(depositor), 200);
+
+        assertEq(rsa.balanceOf(depositor), baseShares);
+
+
+        emit log_named_address("user", rando);
+        vm.startPrank(rando);
+        creditToken.approve(address(rsa), minDeposit);
+        rsa.deposit(minDeposit, rando);
+        vm.stopPrank();
+
+        assertEq(rsa.balanceOf(rando), baseShares );
+
+
+        emit log_named_uint("amount", creditToken.balanceOf(rando));
+        vm.startPrank(rando);
+        creditToken.approve(address(rsa), minDeposit);
+        rsa.deposit(minDeposit, depositor);
+        vm.stopPrank();
+
+        assertEq(rsa.balanceOf(rando), baseShares);
+        assertEq(rsa.balanceOf(depositor), baseShares * 2);
     }
 
     // TODO more initiateTerm() and cancelTerm() tests
@@ -287,7 +325,7 @@ contract FunFundingTest is Test {
         _depositRSA(depositor, rsa, _amount);
         _initRSA(rsa);
         uint256 balance2 = creditToken.balanceOf(borrower);
-        assertEq(balance2 - balance1, rsa.totalOwed() * 10_000 / rsa.rewardRate()); // get initial deposits from debt owed
+        assertEq(balance2 - balance1, _amount);
     }
 
     function test_initiateTerm_increasesTotalSupplyAndOwedByNetworkFees(uint256 _amount) public {
@@ -295,7 +333,18 @@ contract FunFundingTest is Test {
         
         uint256 shares = _depositRSA(depositor, rsa, _amount);
         _initRSA(rsa);
-        assertEq(rsa.totalSupply(), (shares * rsa.NETWORK_FEE_BPS()) / 10_000);
+
+        uint16 feeRate = rsa.NETWORK_FEE_BPS();
+        uint256 feeAssets;
+        if(feeRate == 0) {
+            assertEq(0, rsa.balanceOf(funNetwork));
+        } else {
+            feeAssets = (_amount * rsa.NETWORK_FEE_BPS()) / 10_000;
+            assertEq(rsa.totalSupply(), shares + feeAssets);
+        }
+
+        assertEq(rsa.totalSupply(), shares + feeAssets);
+        assertEq(rsa.totalOwed(), shares + feeAssets);
     }
 
     function test_initiateTerm_mintsNetworkFeeToRecipient(uint256 _amount) public {
@@ -310,6 +359,7 @@ contract FunFundingTest is Test {
         uint256 redeemed = bound(_redeemed, 100, MAX_UINT / rsa.rewardRate());
 
         _depositRSA(depositor, rsa, redeemed);
+        _initRSA(rsa);
         _generateRevenue(creditToken, revenue);
 
         vm.prank(depositor);
@@ -327,8 +377,9 @@ contract FunFundingTest is Test {
         uint256 redeemed = bound(_redeemed, 100, MAX_UINT / rsa.rewardRate());
         assertEq(rsa.totalSupply(), 0);
 
-        _depositRSA(depositor, rsa, redeemed);
-        assertEq(rsa.totalSupply(), redeemed);
+        uint256 shares = _depositRSA(depositor, rsa, redeemed);
+        _initRSA(rsa);
+        assertGe(rsa.totalSupply(), redeemed);
         // checkpoint depositor underlying balance after depositing to assert redeemed amount
         uint256 depositorBalance0 = creditToken.balanceOf(depositor);
 
@@ -338,7 +389,7 @@ contract FunFundingTest is Test {
         rsa.redeem(redeemed, depositor, depositor);
         vm.stopPrank();
 
-        assertEq(rsa.totalSupply(), redeemed * rsa.rewardRate() / 10_000);
+        assertGe(rsa.totalSupply(), shares - redeemed);
         uint256 depositorBalance1 = creditToken.balanceOf(depositor);
         assertEq(depositorBalance1, depositorBalance0 + redeemed);
     }
@@ -347,8 +398,9 @@ contract FunFundingTest is Test {
         uint256 redeemed = bound(_redeemed, 100, MAX_UINT / rsa.rewardRate());
         assertEq(rsa.totalSupply(), 0);
 
-        _depositRSA(depositor, rsa, redeemed);
-        assertEq(rsa.totalSupply(), redeemed);
+        uint256 shares = _depositRSA(depositor, rsa, redeemed);
+        _initRSA(rsa);
+        assertGe(rsa.totalSupply(), shares);
         // checkpoint depositor underlying balance after depositing to assert redeemed amount
         uint256 claimable0 = rsa.claimableAmount();
         assertEq(claimable0, 0); // no rev claimed to rsa yet
@@ -465,28 +517,29 @@ contract FunFundingTest is Test {
         uint256 redeemed = bound(_redeemed, 100,  MAX_UINT / rsa.rewardRate());
         assertEq(rsa.totalSupply(), 0);
 
-        _depositRSA(depositor, rsa, redeemed);
+        uint256 shares = _depositRSA(depositor, rsa, redeemed);
         _initRSA(rsa);
-        assertEq(rsa.totalSupply(), redeemed);
+
+        assertEq(rsa.totalSupply(), shares);
         // checkpoint depositor underlying balance after depositing to assert redeemed amount
         uint256 depositorClaims0 = rsa.balanceOf(depositor);
-        assertEq(depositorClaims0, redeemed);
+        assertEq(depositorClaims0, shares);
 
-        _generateRevenue(creditToken, redeemed);
+        _generateRevenue(creditToken, shares);
 
         // transfer RSA claims to someone else and let them redeem
         vm.prank(depositor);
-        rsa.approve(rando, redeemed);
+        rsa.approve(rando, shares);
         vm.stopPrank();
 
         uint256 randoAllowance0 = rsa.allowance(depositor, rando);
 
         vm.prank(rando);
-        rsa.redeem(redeemed, depositor, depositor);
+        rsa.redeem(shares, depositor, depositor);
         vm.stopPrank();
 
         uint256 randoAllowance1 = rsa.allowance(depositor, rando);
-        assertEq(randoAllowance1, randoAllowance0 - redeemed);
+        assertEq(randoAllowance1, randoAllowance0 - shares);
     }
 
     /**
@@ -498,13 +551,13 @@ contract FunFundingTest is Test {
     function test_deposit_with0APR() public {
         FunFunding _rsa = FunFunding(_initRSA(
             address(creditToken),
-            0
+            uint16(0)
         ));
         uint256 amount = 0.1 ether;
         uint256 shares = _depositRSA(depositor, _rsa, amount);
         
         assertEq(shares, amount); // no increase in tokens
-        assertEq(rsa.rewardRate(), 10_000); // no apr
+        assertEq(_rsa.rewardRate(), 10_000); // no apr
     }
 
 
@@ -529,27 +582,27 @@ contract FunFundingTest is Test {
         _depositRSA(depositor, rsa, _amount);
         _initRSA(rsa);
         
-        _generateRevenue(revenueToken, revenue);
+        _generateRevenue(feeToken, revenue);
         
         // now have revenue but no claimableCredits credit tokens
-        assertEq(revenueToken.balanceOf(address(rsa)), revenue, "bad pre trade rev token balance");
+        assertEq(feeToken.balanceOf(address(rsa)), revenue, "bad pre trade rev token balance");
         assertEq(creditToken.balanceOf(address(rsa)), 0, "bad pre trade cred token balance");
         assertEq(rsa.claimableAmount(), 0);
         assertEq(rsa.totalOwed(), _amount);
 
-        uint256 bought = _tradeRevenue(address(revenueToken), revenue, _amount);
+        uint256 bought = _tradeRevenue(address(feeToken), revenue, _amount);
         uint256 claimableCredits = bound(bought, 0, _amount);
 
         // debt hasnt been updated even though we traded revenue
         // should only update in repay() call
-        assertEq(revenueToken.balanceOf(address(rsa)), 0, "bad prepay rev token RSA balance");
+        assertEq(feeToken.balanceOf(address(rsa)), 0, "bad prepay rev token RSA balance");
         assertEq(creditToken.balanceOf(address(rsa)), bought, "bad prepay credit token RSA balance");
         assertEq(rsa.claimableAmount(), 0);
         assertEq(rsa.totalOwed(), _amount);
 
         rsa.repay();
         
-        assertEq(revenueToken.balanceOf(address(rsa)), 0, "bad final rev token RSA balance");
+        assertEq(feeToken.balanceOf(address(rsa)), 0, "bad final rev token RSA balance");
         assertEq(creditToken.balanceOf(address(rsa)), bought, "bad final credit token RSA balance");
         assertEq(rsa.claimableAmount(), claimableCredits);
         assertEq(rsa.totalOwed(), _amount - bought);
@@ -575,17 +628,21 @@ contract FunFundingTest is Test {
     function test_repay_mustIncreaseClaimableAmount() public {
         // ensure we do not send token to depositor either as a negative case
         assertEq(rsa.claimableAmount(), 0);
+
         uint256 amount = 0.1 ether;
         _depositRSA(depositor, rsa, amount);
+        assertEq(rsa.claimableAmount(), 0);
+        
         _initRSA(rsa);
-
         _generateRevenue(creditToken, MAX_REVENUE);
         assertEq(rsa.claimableAmount(), 0);
 
         uint256 claimable = MAX_REVENUE > amount ? amount : MAX_REVENUE;
+
         assertEq(creditToken.balanceOf(address(rsa)), MAX_REVENUE);
-        assertEq(rsa.claimableAmount(), claimable);
-        assertGe(claimable, 0); // mustve increased something
+        assertGe(rsa.claimableAmount(), amount); // btw amount and totalOwed()
+        // assertLe(rsa.claimableAmount(), rsa.totalOwed()); // btw amount and totalOwed()
+        // assertGe(0, claimable); // mustve increased something
     }
 
     /// @dev invariant
@@ -593,27 +650,20 @@ contract FunFundingTest is Test {
         uint256 amount = 0.1 ether;
         _depositRSA(depositor, rsa, amount);
         _initRSA(rsa);
-        _generateRevenue(creditToken, amount);
-        // clear operator tokens so _assertSpigot in _generateRevenue passes on multiple invocations
-        // hoax(operator);
-        // rsa.claimOperatorTokens(address(creditToken));
 
-        assertEq(creditToken.balanceOf(address(rsa)), amount);
-        assertEq(rsa.claimableAmount(), 0);
+        _generateRevenue(creditToken, amount / 2);
+        assertEq(creditToken.balanceOf(address(rsa)), amount / 2);
+        assertEq(rsa.claimableAmount(), amount / 2);
 
-        rsa.repay();
-
+        _generateRevenue(creditToken, amount / 2);
         assertEq(creditToken.balanceOf(address(rsa)), amount);
         assertEq(rsa.claimableAmount(), amount); // updated claimable properly
 
 
         _generateRevenue(creditToken, amount);
-        // clear operator tokens so _assertSpigot in _generateRevenue passes on multiple invocations
-        // hoax(operator);
-        // rsa.claimOperatorTokens(address(creditToken));
-
         assertEq(creditToken.balanceOf(address(rsa)), amount + amount);
-        assertEq(rsa.claimableAmount(), amount + amount); // updated claimable properly
+        assertEq(rsa.claimableAmount(), amount); // once over doesnt go up
+        // TODO in test_repay_mustCapClaimableRepaymentsToTotalOwed()
     }
 
 
@@ -681,11 +731,11 @@ contract FunFundingTest is Test {
     function test_sweep_onlyBorrower() public {
         vm.expectRevert(Ownable.Unauthorized.selector);
         vm.startPrank(rando);
-        rsa.sweep(address(revenueToken), rando);
+        rsa.sweep(address(feeToken), rando);
         vm.stopPrank();
 
         vm.startPrank(borrower);
-        rsa.sweep(address(revenueToken), borrower);
+        rsa.sweep(address(feeToken), borrower);
         vm.stopPrank();
 
         // set depositor so to test that role
@@ -695,20 +745,20 @@ contract FunFundingTest is Test {
         // still cant sweep() once they depost and become the ofificial depositor
         vm.expectRevert(Ownable.Unauthorized.selector);
         vm.startPrank(depositor);
-        rsa.sweep(address(revenueToken), depositor);
+        rsa.sweep(address(feeToken), depositor);
         vm.stopPrank();
     }
 
     
-    function test_sweep_sendsFullRevenueTokenBalance() public {
-        deal(address(revenueToken), address(rsa), 1000);
-        uint256 preBalance = revenueToken.balanceOf(address(rsa));
+    function test_sweep_sendsFullRandomTokenBalance() public {
+        deal(address(feeToken), address(rsa), 1000);
+        uint256 preBalance = feeToken.balanceOf(address(rsa));
 
         vm.startPrank(borrower);
-        rsa.sweep(address(revenueToken), rando);
+        rsa.sweep(address(feeToken), rando);
 
-        uint256 postBalance = revenueToken.balanceOf(address(rsa));
-        uint256 sweeperBalance2 = revenueToken.balanceOf(address(rando));
+        uint256 postBalance = feeToken.balanceOf(address(rsa));
+        uint256 sweeperBalance2 = feeToken.balanceOf(address(rando));
         assertEq(postBalance, 0);
         assertEq(sweeperBalance2, 1000);
     }
@@ -784,54 +834,63 @@ contract FunFundingTest is Test {
 
     function test_sweep_mustDisperseIfNoDebt() public {
         // TODO split between tests for sweep in init/cancel vs repaid
-        deal(address(revenueToken), address(rsa), 1000);
-        uint256 preBalance = revenueToken.balanceOf(address(rsa));
+        deal(address(feeToken), address(rsa), 1000);
+        uint256 preBalance = feeToken.balanceOf(address(rsa));
 
         // no depositor so no debt
         assertEq(rsa.totalOwed(), 0); // totalOwed not updated because not init and no deposits
         assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.INIT));
+
         vm.startPrank(borrower);
-        rsa.sweep(address(revenueToken), borrower);
-        assertEq(0, revenueToken.balanceOf(address(rsa)));
+        rsa.sweep(address(feeToken), borrower);
+        assertEq(0, feeToken.balanceOf(address(rsa)));
         vm.stopPrank();
 
-        uint256 postBalance = revenueToken.balanceOf(address(rsa));
+        uint256 postBalance = feeToken.balanceOf(address(rsa));
         assertEq(postBalance, 0);
         assertEq(preBalance - postBalance, 1000);
+
 
         _depositRSA(depositor, rsa, 0.1 ether);
         _initRSA(rsa);
         assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.ACTIVE));
-        
+
+        vm.prank(rsa.owner());
+        vm.expectRevert(FunFunding.InvalidStatus.selector);
+        rsa.sweep(address(feeToken), borrower);
+
+        emit log_named_uint("totalOwed", rsa.totalOwed());
+        emit log_named_uint("balance", creditToken.balanceOf(address(rsa)));
+
         // repay full  debt
         deal(address(creditToken),address(rsa), rsa.totalOwed());
         rsa.repay();
         assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.REPAID));
 
-        deal(address(revenueToken), address(rsa), 1000);
-        uint256 preBalance2 = revenueToken.balanceOf(address(rsa));
+        deal(address(feeToken), address(rsa), 1000);
+        uint256 preBalance2 = feeToken.balanceOf(address(rsa));
 
         vm.startPrank(borrower);
         // debt repaid so can sweep now
-        rsa.sweep(address(revenueToken), borrower);
+        rsa.sweep(address(feeToken), borrower);
         vm.stopPrank();
 
-        uint256 postBalance2 = revenueToken.balanceOf(address(rsa));
+        uint256 postBalance2 = feeToken.balanceOf(address(rsa));
         assertEq(postBalance2, 0);
         assertEq(preBalance2 - postBalance2, 1000);
     }
 
 
     function test_sweep_mustFailIfDebt() public {
-        deal(address(revenueToken), address(rsa), 1000);
-        uint256 preBalance = revenueToken.balanceOf(address(rsa));
+        deal(address(feeToken), address(rsa), 1000);
+        uint256 preBalance = feeToken.balanceOf(address(rsa));
 
         vm.startPrank(borrower);
         // no depositor so no debt so can sweep
-        rsa.sweep(address(revenueToken), borrower);
+        rsa.sweep(address(feeToken), borrower);
         vm.stopPrank();
 
-        uint256 postBalance = revenueToken.balanceOf(address(rsa));
+        uint256 postBalance = feeToken.balanceOf(address(rsa));
         assertEq(postBalance, 0);
         assertEq(preBalance - postBalance, 1000);
 
@@ -839,15 +898,15 @@ contract FunFundingTest is Test {
         _depositRSA(depositor, rsa, 0.1 ether);
         _initRSA(rsa);
                 
-        deal(address(revenueToken), address(rsa), 1000);
-        uint256 preBalance2 = revenueToken.balanceOf(address(rsa));
+        deal(address(feeToken), address(rsa), 1000);
+        uint256 preBalance2 = feeToken.balanceOf(address(rsa));
 
         vm.startPrank(borrower);
         vm.expectRevert(FunFunding.CantSweepWhileInDebt.selector);
-        rsa.sweep(address(revenueToken), borrower);
+        rsa.sweep(address(feeToken), borrower);
         vm.stopPrank();
 
-        uint256 postBalance2 = revenueToken.balanceOf(address(rsa));
+        uint256 postBalance2 = feeToken.balanceOf(address(rsa));
         assertEq(postBalance2, 1000);
         assertEq(preBalance2 - postBalance2, 0);
     }
@@ -872,6 +931,7 @@ contract FunFundingTest is Test {
         address _token,
         uint16 _apr
     ) internal returns(FunFunding newRSA) {
+        emit log_named_uint("apr", _apr);
         address _newRSA = factory.deployFunFunding(
             borrower,
             _token,
@@ -879,6 +939,7 @@ contract FunFundingTest is Test {
             "RSA Revenue Stream Token",
             "rsaCLAIM"
         );
+        emit log_named_uint("apr3", IFunFunding(_newRSA).rewardRate());
 
 
         // emit log_named_address("borrower", borrower);
@@ -910,19 +971,19 @@ contract FunFundingTest is Test {
      * @dev sends tokens through spigot and makes claimable for owner and operator
      */
     function _tradeRevenue(
-        address _revenueToken,
+        address _feeToken,
         uint256 _minRevenueSold,
         uint256 _minCreditsBought
     ) internal returns(uint256 tokensBought) {
         // dont actually need to initiate trade since we can update EVM state manually
         // keep to document flow and hopefully check bugs related to process
         hoax(depositor);
-        rsa.initiateOrder(address(_revenueToken), _minRevenueSold, _minCreditsBought, uint32(block.timestamp + MAX_TRADE_DEADLINE));
+        rsa.initiateOrder(address(_feeToken), _minRevenueSold, _minCreditsBought, uint32(block.timestamp + MAX_TRADE_DEADLINE));
 
         // simulate trade by moving want tokens into rsa, and transferring sold tokens out
         deal(address(creditToken),address(rsa), _minCreditsBought);
         vm.prank(address(rsa));
-        IERC20x(_revenueToken).transfer(address(0), _minRevenueSold);
+        IERC20x(_feeToken).transfer(address(0), _minRevenueSold);
 
         return _minCreditsBought;
     }

@@ -5,7 +5,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 import {GPv2Order} from "../lib/GPv2.sol";
 import {IFunETH, IERC20x, IFunFactory, IAaveMarket, ReserveData} from "../Interfaces.sol";
 
-// TODO add full ERC4626 functionality. Must functions super simple since static vars e.g. convertToShares, .
+// TODO add full solmate/ERC4626 functionality. Must functions super simple since static vars e.g. convertToShares, .
 
 /**
 * @title Revenue Share Agreemnt
@@ -141,7 +141,7 @@ contract FunFunding is ERC20, Ownable {
 
         // RSA financial terms
         status = STATUS.INIT;
-        rewardRate = _apr; // apr depositor reward to make redemptions 1:1 per apr;
+        rewardRate = _apr + BPS_COEFFICIENT; // apr depositor reward to make redemptions 1:1 per apr;
         asset = _creditToken;
         NETWORK_FEE_BPS = IFunFactory(msg.sender).funLoanFee();
         // set FUN Treasury as fee recipient
@@ -168,6 +168,7 @@ contract FunFunding is ERC20, Ownable {
     /**
     * @notice Lets lenders deposit Borrower's requested loan amount into RSA and receive back redeemable shares of revenue stream
     * @dev callable by anyone if offer not accepted yet
+    * @return redeemable shares minted. more than amount based on apr for 1:1 redemption
     */
     function deposit(uint256 amount, address _receiver) public returns(uint256 redeemable) {
         if(status != STATUS.INIT) {
@@ -180,46 +181,50 @@ contract FunFunding is ERC20, Ownable {
         _mint(_receiver, redeemable);
 
         // extend credit to borrower
-        ERC20(asset).transferFrom(msg.sender, address(this), redeemable);
+        ERC20(asset).transferFrom(msg.sender, address(this), amount);
 
-        emit Deposit(msg.sender, _receiver, redeemable, amount);
+        emit Deposit(msg.sender, _receiver, amount, redeemable);
     }
 
     /**
     * @notice Lets Lender redeem their original tokens.
-    * @param _amount - amount of RSA tokens to redeem @ 1:1 ratio for asset
+    * @param _amount - amount of shares to redeem @ 1:1 ratio for asset
     * @param _to - who to send claimed creditTokens to
-    * @dev callable by anyone if offer not accepted yet
+    * @dev callable by anyone if round not closed by borrower yet. 
+    * @dev results vary based on status of round.
+    * @return redeemable - underlying assets returned for shares
     */
-    function redeem(uint256 _amount, address _to, address _owner) whileActive public returns(uint256 redeemable) {
-        if(_amount > claimableAmount) {
-            // _burn only checks their RSA token balance so
-            // asset.transfer may move tokens we havent
-            // properly accounted for as revenue yet.
-
-            // If asset.balanceOf(this) > _amount but redeem() fails then call
-            // repay() to account for the missing tokens.
-            revert ExceedClaimableTokens(claimableAmount);
+    function redeem(uint256 _amount, address _to, address _owner) public returns(uint256 redeemable) {
+        if(status == STATUS.INIT || status == STATUS.CANCELED) {
+            // if deal never launches, redeem for original deposit values not reward rate.
+            // Better UX to always have 1:1 redeem rate for token value inflating for yield instead of a variable redeem rate on every loan
+            redeemable = (_amount * BPS_COEFFICIENT) / rewardRate;
         }
         
+        if(status == STATUS.ACTIVE || status == STATUS.REPAID) {
+            // _burn only checks their RSA token balance so asset.transfer may move tokens
+            // we havent properly accounted for as revenue yet.
+            // If asset.balanceOf(this) > _amount but redeem() fails then call
+            // repay() to account for the missing tokens and redeem() again.
+            if(_amount > claimableAmount)
+                revert ExceedClaimableTokens(claimableAmount);
+            
+            redeemable = _amount;
+            claimableAmount -= redeemable;
+        } 
+
+        // @NOTE use _amount here as initial shares. 
         // check that caller has approval on _owner tokens
         if(msg.sender != _owner) {
             _spendAllowance(_owner, msg.sender, _amount);
         }
-
-        // if deal was canceled do redeem for original deposit values not reward rate.
-        // For better UX to have 1:1 token value instead of a variable redeem rate per contract.
-        redeemable = status == STATUS.ACTIVE ? _amount :  (_amount * BPS_COEFFICIENT) / rewardRate;
-
-        claimableAmount -= redeemable;
-        _burn(_owner, redeemable);
+        _burn(_owner, _amount);
 
         // if RSA not actived then redeem at 1:1 ratio. else redeem at rate of return
         ERC20(asset).transfer(_to, redeemable);
 
-        emit Withdraw(msg.sender, _to, _owner, redeemable, redeemable);
+        emit Withdraw(msg.sender, _to, _owner, redeemable, _amount);
     }
-
 
     /**
     * @notice Accounts for all credit tokens bought and updates debt and deposit balances
@@ -232,9 +237,8 @@ contract FunFunding is ERC20, Ownable {
         uint256 newPayments = currBalance - claimableAmount;
         uint256 maxPayable = totalOwed; // cache in memory
 
-        if(newPayments > maxPayable) {
+        if(newPayments >= maxPayable) {
             // if fees > debt then repay all debt
-            // and return excess to borrower
             claimableAmount = maxPayable;
             totalOwed = 0;
             _completeTerm();
@@ -270,7 +274,7 @@ contract FunFunding is ERC20, Ownable {
         // i think initial value like now is appropriate
         uint256 fee = (deposited * NETWORK_FEE_BPS) / BPS_COEFFICIENT;
 
-        totalOwed = deposited + fee;
+        totalOwed = totalSupply() + fee; // supply = deposited * rewardRate
         _mint(networkFeeRecipient, fee);
 
         ERC20(asset).transfer(owner(), deposited);
@@ -411,8 +415,7 @@ contract FunFunding is ERC20, Ownable {
     * @param _to    - who to sweep tokens to
     */
     function sweep(address _token, address _to) external onlyOwner returns(bool) {
-        if(status == STATUS.ACTIVE)
-            revert InvalidStatus();
+        if(status == STATUS.ACTIVE) revert InvalidStatus();
 
         if (_token == address(0)) {
             (bool success,) = owner().call{value: address(this).balance}("");

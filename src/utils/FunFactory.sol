@@ -43,7 +43,7 @@ contract FunFactory is Ownable {
     }
 
     function deployFunFunding(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol) public returns (address) {
-        address clone = LibClone.cloneDeterministic(rsaImplementation, keccak256(abi.encodePacked(name)));
+        address clone = LibClone.cloneDeterministic(rsaImplementation, keccak256(abi.encodePacked(borrower, apr, name)));
         IFunFunding(clone).initialize(borrower, WETH, loanToken, apr, name, symbol);
         return clone;
     }

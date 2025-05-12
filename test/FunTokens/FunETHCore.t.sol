@@ -1,5 +1,6 @@
 pragma solidity ^0.8.26;
 
+import {Ownable} from "solady/auth/Ownable.sol";
 import {FunETHBaseTest} from "./FunETHBaseTest.t.sol";
 import {IERC20x, IAaveMarket, IFunETH, AaveErrors} from "../../src/Interfaces.sol";
 import {FunETH} from "../../src/FunETH.sol";
@@ -30,16 +31,16 @@ contract FunETHCore is FunETHBaseTest {
         (,, uint256 availableBorrow,,, uint256 hf) = aave.getUserAccountData(address(funETH));
         assertGt(availableBorrow, 100000000);
 
+        address rsa = factory.deployFunFunding(address(0), address(funETH.debtAsset()), 100, "test", "test");
         vm.startPrank(funETH.FUN_OPS());
-
         assertEq(funETH.totalCreditDelegated(), 0);
-        funETH.lend(cities[0], amounts[0], 100, "test", "test");
+        funETH.lend(cities[0], rsa, amounts[0]);
         assertEq(funETH.totalCreditDelegated(), amounts[0]);
-        funETH.lend(cities[1], amounts[1], 100, "test", "test");
+        funETH.lend(cities[1], rsa, amounts[1]);
         assertEq(funETH.totalCreditDelegated(), amounts[0] + amounts[1]);
-        funETH.lend(cities[0], amounts[2], 100, "test", "test");
+        funETH.lend(cities[0], rsa, amounts[2]);
         assertEq(funETH.totalCreditDelegated(), amounts[2] + amounts[1]);
-        funETH.lend(cities[1], amounts[3], 100, "test", "test");
+        funETH.lend(cities[1], rsa, amounts[3]);
         assertEq(funETH.totalCreditDelegated(), amounts[2] + amounts[3]);
 
         vm.stopPrank();
@@ -52,7 +53,7 @@ contract FunETHCore is FunETHBaseTest {
     }
 
     function test_initialize_cantReinitialize() public {
-        vm.expectRevert(FunETH.AlreadyInitialized.selector);
+        vm.expectRevert(Ownable.AlreadyInitialized.selector);
         funETH.initialize(address(reserveToken), address(aave), address(debtToken), "funCity Ethereum", "funETH");
     }
 
@@ -193,7 +194,7 @@ contract FunETHCore is FunETHBaseTest {
         vm.assume(caller != funETH.FUN_OPS());
         vm.prank(caller);
         vm.expectRevert(FunETH.NotfunCity.selector);
-        funETH.pullReserves(amount);
+        funETH.pullReserves(amount, address(0));
     }
 
     function test_pullReserves_onlyfunCityTreasury(address depositor, address rando)
@@ -205,22 +206,22 @@ contract FunETHCore is FunETHBaseTest {
 
         // auth should work on 0 yield, 0 deposits
         vm.prank(funETH.FUN_OPS());
-        funETH.pullReserves(0);
+        funETH.pullReserves(0, address(0));
 
         vm.prank(rando);
         vm.expectRevert(FunETH.NotfunCity.selector);
-        funETH.pullReserves(0);
+        funETH.pullReserves(0, address(0));
 
         // auth should work w/ yield/deposits
         _depositnnEth(depositor, 10 ether, true);
         vm.warp(block.timestamp + 10 days);
 
         vm.prank(funETH.FUN_OPS());
-        funETH.pullReserves(1);
+        funETH.pullReserves(0.1 ether, address(0));
 
         vm.prank(rando);
         vm.expectRevert(FunETH.NotfunCity.selector);
-        funETH.pullReserves(1);
+        funETH.pullReserves(0.1 ether, address(0));
     }
 
     function invariant_getYieldEarned_aTokenVsTotalSupply() public {
@@ -259,7 +260,7 @@ contract FunETHCore is FunETHBaseTest {
         emit log_named_uint("underlying", funETH.underlying());
 
         vm.startPrank(funETH.FUN_OPS());
-        funETH.pullReserves(yield);
+        funETH.pullReserves(yield, address(0));
         vm.stopPrank();
 
         assertGe(yield, funETH.aToken().balanceOf(funETH.FUN_OPS()) - 1);
@@ -286,7 +287,7 @@ contract FunETHCore is FunETHBaseTest {
 
         vm.startPrank(funCity);
         uint256 reservesToPull = yield / 2;
-        funETH.pullReserves(reservesToPull);
+        funETH.pullReserves(reservesToPull, address(0));
 
         emit log_named_uint("interest earned", yield);
         emit log_named_uint("reserves", reservesToPull);
@@ -317,7 +318,7 @@ contract FunETHCore is FunETHBaseTest {
 
         vm.startPrank(funETH.FUN_OPS());
         vm.expectRevert(FunETH.InsufficientReserves.selector);
-        funETH.pullReserves(n);
+        funETH.pullReserves(n, address(0));
     }
 
     function test_pullReserves_revertOverDebtRatio(address depositor, uint256 amount)
@@ -340,7 +341,7 @@ contract FunETHCore is FunETHBaseTest {
 
         vm.startPrank(funETH.FUN_OPS());
         vm.expectRevert(FunETH.InsufficientReserves.selector);
-        funETH.pullReserves(10);
+        funETH.pullReserves(10, address(0));
         vm.stopPrank();
 
         // no change bc cant withdraw
@@ -378,7 +379,8 @@ contract FunETHCore is FunETHBaseTest {
         (, uint256 borrowable) = _borrowable(n);
         vm.warp(block.timestamp + 888);
         vm.prank(funETH.FUN_OPS());
-        funETH.lend(makeAddr("boogawugi"), borrowable, 100, "test", "test");
+        address rsa = factory.deployFunFunding(address(0), address(funETH.debtAsset()), 100, "test", "test");
+        funETH.lend(makeAddr("boogawugi"), rsa, borrowable);
 
         uint256 safeWithdraw = (n * 3) / 4;
         vm.prank(user);
@@ -394,8 +396,9 @@ contract FunETHCore is FunETHBaseTest {
         (, uint256 borrowable) = _borrowable(n);
         vm.warp(block.timestamp + 888);
 
+        address rsa = factory.deployFunFunding(address(0), address(funETH.debtAsset()), 100, "test", "test");
         vm.prank(funETH.FUN_OPS());
-        funETH.lend(makeAddr("boogawugi"), borrowable, 100, "test", "test");
+        funETH.lend(makeAddr("boogawugi"), rsa, borrowable);
 
         assertGe(funETH.getExpectedHF(), funETH.MIN_REDEEM_FACTOR());
 

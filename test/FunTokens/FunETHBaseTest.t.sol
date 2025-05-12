@@ -4,7 +4,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {FunETH} from "../../src/FunETH.sol";
 import {IERC20x, IAaveMarket, IFunETH} from "../../src/Interfaces.sol";
-
+import {FunFactory} from "../../src/utils/FunFactory.sol";
 contract FunETHBaseTest is Test {
     FunETH public funETH;
 
@@ -29,12 +29,14 @@ contract FunETHBaseTest is Test {
     IERC20x public debtToken = debtUSDC;
     address public borrowToken = address(USDC);
     IAaveMarket public aave = aaveBase;
+    FunFactory public factory; // for deploying RSA in integration tests or basic lend() tests
 
     uint256 private baseFork;
 
     function setUp() public virtual {
         baseFork = vm.createSelectFork(vm.rpcUrl("base"), 23_502_225);
 
+        factory = new FunFactory(address(aave), address(WETH));
         funETH = new FunETH();
 
         (, bytes memory data) = address(reserveToken).call(abi.encodeWithSignature("symbol()"));
@@ -117,7 +119,8 @@ contract FunETHBaseTest is Test {
         vm.warp(block.timestamp + 1 weeks);
 
         vm.prank(funETH.FUN_OPS());
-        funETH.lend(city, amount, 1_000, "test", "test");
+        address rsa = factory.deployFunFunding(address(0), address(reserveToken), 100, "test", "test");
+        funETH.lend(city, rsa, amount);
     }
 
     function _withdrawnnEth(address user, uint256 amount) internal {

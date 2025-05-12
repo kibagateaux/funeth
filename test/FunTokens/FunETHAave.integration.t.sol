@@ -83,11 +83,18 @@ contract FunETHAaveIntegration is FunETHBaseTest {
 
         address treasury = funETH.FUN_OPS();
         (uint256 totalCredit, uint256 borrowable) = _borrowable(funETH.totalSupply());
+        address rsa = factory.deployFunFunding(
+            address(0),
+            address(reserveToken),
+            52,
+            "RSA Revenue Stream Token0",
+            "rsaCLAIM0"
+        );
 
         vm.prank(treasury);
         vm.expectEmit(true, true, true, false);
         emit FunETH.Lend(address(treasury), address(debtToken), city, borrowable, address(0));
-        funETH.lend(city, borrowable, 100, "test", "test");
+        funETH.lend(city, rsa, borrowable);
 
         uint256 delegatedCredit = debtToken.borrowAllowance(address(funETH), city);
         assertGt(delegatedCredit, 0);

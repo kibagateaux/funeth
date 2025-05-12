@@ -2,8 +2,8 @@ pragma solidity ^0.8.26;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {IFunETH, IERC20x, IAaveMarket, ReserveData, IFunFactory, IFunFunding} from "./Interfaces.sol";
-
-contract FunETH is IFunETH, ERC20 {
+import {Ownable} from "solady/auth/Ownable.sol";
+contract FunETH is IFunETH, ERC20, Ownable {
     // from solady/ERC20 for increaseAllowance (important for LandRegistry security)
     uint256 private constant _ALLOWANCE_SLOT_SEED = 0x7f5e9f20;
     /// @dev `keccak256(bytes("Approval(address,address,uint256)"))`.
@@ -18,12 +18,9 @@ contract FunETH is IFunETH, ERC20 {
     /// @notice min health factor for user to redeem to prevent malicious liquidations. 2 = Redeems until debt = 50% of funETH TVL
     uint8 public constant MIN_REDEEM_FACTOR = 2;
     /// @notice min health factor for treasury to pull excess interest. 8 = ~12% of total funETH TVL can be delegated
-    uint8 public constant MIN_RESERVE_FACTOR = 8;
-    /// @notice used to convert AAVE LTV to HF calc
-    uint16 public constant BPS_COEFFICIENT = 1e4;
+    uint8 public constant MIN_RESERVE_FACTOR = 6;
     /// @notice Aave variable debt mode for all borrowing
     uint8 internal constant AAVE_INTEREST_MODE = 0;
-    IFunFactory internal factory;
 
     string internal _name;
     string internal _symbol;
@@ -35,7 +32,7 @@ contract FunETH is IFunETH, ERC20 {
     /// @notice full decimal offset between reserveToken and aToken e.g. 1e10 not 10
     uint256 public reserveVsATokenDecimalOffset;
     /// @notice decimals for token we borrow for use in HF calculations
-    uint8 public debtTokenDecimals;
+    uint8 public debtTokenDecimals;  // TODO this and debtTokenDecimals vestigial
 
     /// @notice Token to accept for home payments in funCity
     IERC20x public reserveToken;
@@ -45,16 +42,15 @@ contract FunETH is IFunETH, ERC20 {
     /// @notice Aave yield bearing token for reserveToken. Provides total ETH balance of funETH contract.
     IERC20x public aToken;
     /// @notice Aave variable debt token that we let popups borrow against funCity collateral
-    IERC20x public debtToken;
+    IERC20x public debtToken; // TODO this and debtTokenDecimals vestigial
     /// @notice Address of the actual debt asset. e.g. USDC
-    address internal debtAsset;
-
-    /// @notice total delegated. NOT total currently borrowed. Denominated in debtToken
-    uint256 public totalCreditDelegated;
+    address public debtAsset;
+    
+    uint256 public totalCreditDelegated;// TODO Stub until remove it from all tests
 
     struct City {
-        address rsa;
-        uint256 owed;
+        address fun_dingo; // current lend contract
+        uint256 owed; // how many tokens funETH can redeem on fun_dingo
     }
     mapping(address => City) public cities;
 
@@ -67,13 +63,12 @@ contract FunETH is IFunETH, ERC20 {
     ///@notice where we are farming, what token, how much was deposited
     event Farm(address indexed market, address indexed reserve, uint256 dubloons);
     ///@notice where yield was sent to, how much
-    event PullReserves(address indexed treasurer, uint256 dubloons);
+    event PullReserves(address indexed treasurer, address indexed token, uint256 dubloons);
     ///@notice who underwrote loan, what token is borrowed, who loan was given to, amount of tokens lent
-    event Lend(address indexed treasurer, address indexed debtToken, address indexed city, uint256 dubloons, address rsa);
-    event LoanRepaid(address indexed city, address indexed rsa, uint256 dubloons);
-    event LoanClosed(address indexed city, address indexed rsa);
+    event Lend(address indexed treasurer, address indexed debtToken, address indexed city, uint256 dubloons, address fun_dingo);
+    event LoanRepaid(address indexed city, address indexed fun_dingo, uint256 dubloons);
+    event LoanClosed(address indexed city, address indexed fun_dingo);
 
-    error AlreadyInitialized();
     error UnsupportedChain();
     error InvalidReserveMarket();
     error InvalidToken();
@@ -110,6 +105,7 @@ contract FunETH is IFunETH, ERC20 {
         string memory name_,
         string memory symbol_
     ) public {
+        _initializeOwner(FUN_OPS);
         if (address(reserveToken) != address(0)) revert AlreadyInitialized();
 
         // naive check if funCity governance is deployed on this chain
@@ -119,17 +115,13 @@ contract FunETH is IFunETH, ERC20 {
         // Ensure aave market accepts the asset people deposit
         if (pool.aTokenAddress == address(0)) revert InvalidReserveMarket();
 
-        factory = IFunFactory(msg.sender); // assumes only deployed + configured through factory contract that includes RSA deployments
         _name = name_;
         _symbol = symbol_;
         aaveMarket = IAaveMarket(market);
         reserveToken = IERC20x(_reserveToken);
         aToken = IERC20x(pool.aTokenAddress);
-        debtToken = IERC20x(_debtToken);
+        debtToken = IERC20x(_debtToken); // TODO dont think we need this anymore w/ delegateCredit
         debtAsset = debtToken.UNDERLYING_ASSET_ADDRESS();
-
-        // Aave docs say eMode must be the same for delegator + borrower. 0 = none is fine.
-        // aaveMarket.setUserEMode(eMode);
 
         reserveToken.approve(address(aaveMarket), type(uint256).max);
 
@@ -149,9 +141,14 @@ contract FunETH is IFunETH, ERC20 {
         // aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);
     }
 
-    /// TODO make ERC4626 compliant?
+    /// @dev WETH compliant interface
     function deposit(uint256 dubloons) public {
         _deposit(msg.sender, msg.sender, dubloons, address(FUN_OPS), address(this));
+    }
+
+    /// @dev ERC4626 compliant interface
+    function deposit(uint256 dubloons, address receiver) public {
+        _deposit(msg.sender, receiver, dubloons, address(FUN_OPS), address(this));
     }
 
     function depositOnBehalfOf(uint256 dubloons, address to, address referrer) public {
@@ -173,21 +170,30 @@ contract FunETH is IFunETH, ERC20 {
         if (receiver == address(0)) revert InvalidReceiver();
 
         reserveToken.transferFrom(owner, address(this), dubloons);
-        farm(reserveToken.balanceOf(address(this))); // schloop tokens sent directly too
+        farm(address(reserveToken), reserveToken.balanceOf(address(this))); // schloop tokens sent directly too
         _mint(receiver, dubloons);
 
         emit Deposit(owner, receiver, dubloons, city, referrer);
     }
 
-    function farm(uint256 dubloons) public {
+    function farm(address _reserveToken,uint256 dubloons) public {
         // token approval in pullReserves
-        aaveMarket.supply(address(reserveToken), dubloons, address(this), 200); // 200 = referall code. l33t "Zoo"
-        emit Farm(address(aaveMarket), address(reserveToken), dubloons);
+        aaveMarket.supply(address(_reserveToken), dubloons, address(this), 200); // 200 = referall code. l33t "Zoo"
+        emit Farm(address(aaveMarket), address(_reserveToken), dubloons);
     }
 
-    /// TODO make ERC4626 compliant?
+    /// @dev WETH compliant interface
     function withdraw(uint256 dubloons) public {
         _withdraw(msg.sender, msg.sender, dubloons);
+    }
+
+    /// @dev ERC4626 compliant interface
+    function redeem(uint256 shares, address to, address owner) public {
+        if(msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+
+        _withdraw(owner, to, shares);
     }
 
     function withdrawTo(uint256 dubloons, address to) public {
@@ -202,126 +208,125 @@ contract FunETH is IFunETH, ERC20 {
         emit Withdrawal(owner, to, dubloons);
     }
 
-    /* funETH Treasury functions */
-
-    modifier onlyTreasury() {
-        if (msg.sender != FUN_OPS) revert NotfunCity();
-        _;
-    }
-
     function _assertFinancialHealth() internal view {
         if (totalSupply() > underlying()) revert InsufficientReserves();
         if (getExpectedHF() < MIN_RESERVE_FACTOR) revert CreditRisk();
     }
 
-    function pullReserves(uint256 dubloons) onlyTreasury public {
+    /* funETH Treasury functions */
+    /**
+        * @dev generalized implementation to allow different fun tokens/ configs without lots of params needed
 
-        aToken.transfer(FUN_OPS, dubloons);
+     */
+    function pullReserves(uint256 dubloons, address debtAssetFunToken) onlyOwner public {
+        if(debtAssetFunToken == address(0)) {
+            // mint exccess yield as funETH to treasury
+            _mint(FUN_OPS, dubloons); // reverts on assertFinHealth if > underlying() automatically
+            emit PullReserves(msg.sender, address(reserveToken), dubloons);
+        } else {
+            // If we want to directly swap with another fun token
+            // aDebtAssert (>funReserve) -> debtAsset (>funReserve) -> funDebtAsset (>funOps)
+            aaveMarket.withdraw(debtAsset, dubloons, address(this));
+            IERC20x(debtAsset).approve(debtAssetFunToken, dubloons);
+            IFunFunding(debtAssetFunToken).deposit(dubloons, FUN_OPS);
+
+            // or more general just transfer debtAToken to ops
+            // debtAssetAToken.transfer(FUN_OPS,dubloons);
+
+            emit PullReserves(msg.sender, address(debtAsset), dubloons);
+        }
 
         // assert financial health *after* pulling reserves.
         _assertFinancialHealth();
+    }
 
-        // incase reserveToken doesnt support infinite approve, refresh but not on every deposit
-        reserveToken.approve(address(aaveMarket), type(uint256).max);
-
-        emit PullReserves(msg.sender, dubloons);
+    /**
+     * @notice Allows anyone to refresh token approvals for aave market.
+     *     This is necessary if reserveToken does not support infinite approve.
+     * 
+     * @dev Must be called before lend() can work
+     */
+    function maintain(address _reserveToken) public {
+        IERC20x(_reserveToken).approve(address(aaveMarket), type(uint256).max);
+        aaveMarket.setUserUseReserveAsCollateral(_reserveToken, true);
     }
 
     /**
      * @notice Allow projects to borrow against funCity collateral with Aave credit delegation.
      *     Technically this will almost always make us frational reserve. 
      *     But it is a self-repaying loan that eventually becomes solvent
-     * @param city - nnzalu popup city to receive loan
+     * @param city - nnzalu popup city to receive loan. 
+     * @param fun_dingo - ERC4626 to deposit for yield. We assume only FunFunding contract
      * @param dubloons - Should be Aave market denominated. Usually USD to 10 decimals
      */
-    function lend(address city, uint256 dubloons, uint16 apr, string memory name_, string memory symbol_) onlyTreasury public {
-        if(cities[city].rsa != address(0)) revert CityAlreadyLent();
+    function lend(address city, address fun_dingo, uint256 dubloons) onlyOwner public {
+        if(cities[city].fun_dingo != address(0)) revert CityAlreadyLent();
 
-        // totalCreditDelegated += dubloons;
-
-        IFunFunding rsa = IFunFunding(factory.deployFunFunding(
-            city,
-            debtAsset,
-            apr,
-            name_,
-            symbol_
-        ));
         aaveMarket.borrow(debtAsset, dubloons, AAVE_INTEREST_MODE, 200, address(this));
-        rsa.deposit(dubloons, address(this));
+        IFunFunding(fun_dingo).deposit(dubloons, address(this));
         cities[city] = City({
-            rsa: address(rsa),
-            owed: rsa.balanceOf(address(this)) // total debt including apr not initial loan
+            fun_dingo: fun_dingo,
+            //  allow doing multiple deposits to same fun_dingo so use most recent balance
+            owed: IFunFunding(fun_dingo).balanceOf(address(this)) // total debt including apr not initial loan
         });
-        rsa.initiateTerm();
 
         _assertFinancialHealth();
 
-        // throws error if u set collateral with 0 deposits so cant do on initialize.
-        aaveMarket.setUserUseReserveAsCollateral(address(reserveToken), true);
-        // todo add active rsa to city struct? No loan if active rsa, delete on repay if rsa.balanceOf(this) == 0?
-
-        emit Lend(msg.sender, address(debtToken), city, dubloons, address(rsa));
+        emit Lend(msg.sender, address(debtToken), city, dubloons, fun_dingo);
     }
 
     function repay(address city, uint256 dubloons) public {
         City memory creditInfo = cities[city];
 
-        if(creditInfo.rsa == address(0)) revert CityNotLent();
+        if(creditInfo.fun_dingo == address(0)) revert CityNotLent();
         if(dubloons > creditInfo.owed) revert InvalidLoanClaim();
+        
+        // Even if status == INIT/CANCELED we get back total expected tokens with redeem()
+        try IFunFunding(creditInfo.fun_dingo).redeem(dubloons, address(this), address(this)) {
+            // TODO should save rsa rate in cities? Easier to calculate non-funfunding here while maintaining assurances
+            // making lend/repay more flexible for higher yield strategies is pretty good.
 
-        try IFunFunding(creditInfo.rsa).redeem(dubloons, address(this), address(this)) {
-            ERC20(debtAsset).approve(address(aaveMarket), dubloons);
-            aaveMarket.repay(debtAsset, dubloons, AAVE_INTEREST_MODE, address(this));
+            // _repayOrComp deals with aave specific lending/farming logic.
+            _repayOrCompound(dubloons);
 
+            // our accounting is based on cities[city].owed
             if(dubloons == creditInfo.owed) {
-                emit LoanRepaid(city, creditInfo.rsa, dubloons);
-                emit LoanClosed(city, creditInfo.rsa);
+                emit LoanRepaid(city, creditInfo.fun_dingo, dubloons);
+                emit LoanClosed(city, creditInfo.fun_dingo);
                 delete cities[city];
             } else {
                 cities[city].owed -= dubloons;
-                emit LoanRepaid(city, creditInfo.rsa, dubloons);
+                emit LoanRepaid(city, creditInfo.fun_dingo, dubloons);
             }
-
-            // TODO what if loan canceled so city.owed > tokens redeemable?
         } catch {
             revert InvalidLoanClaim();
         }
     }
 
-    /// @notice returns worst case scenario health factor if all credit extended is borrowed at the same time
-    function getExpectedHF() public view returns (uint8) {
-        // ideally use liquidationThreshold not ltv for more safety but aave uses ltv for "borrowable" amount so would make tests messier
-        (uint256 totalCollateralBase, uint256 totalDebtBase,,, uint256 ltv, uint256 hf) =
-            aaveMarket.getUserAccountData(address(this));
+    function _repayOrCompound(uint256 dubloons) internal {
+        (,uint256 debtBase,,,,) = aaveMarket.getUserAccountData(address(this));
+        if(debtBase == 0) {
+            // no debt, perfect health
+            // turn excess debtAsset yield into aTokens
+            farm(debtAsset, dubloons);
+        } else {
+            // else paydown global debt
 
-        // TODO shouldnt need to calculate if all borowing managed thru this contract
-        return uint8(convertToDecimal(hf, 18, 0));
-
-        // aave *internally assumes* debt amount is usd in 8 decimals. convert debt token decimals to match
-        // https://github.com/aave-dao/aave-v3-origin/blob/a0512f8354e97844a3ed819cf4a9a663115b8e20/src/contracts/protocol/libraries/logic/LiquidationLogic.sol#L72
-        // Also assumes debtToken decimals = actual token decimals
-        // uint256 scaledDelegatedCredit = convertToDecimal(
-        //     totalCreditDelegated * price(debtAsset),
-        //     debtTokenDecimals + 8, // offset token + new price decimals to match aave usd decimals
-        //     8
-        // );
-
-        // // debt > credit delegated e.g. interest or price increase since delegation
-        // // So of debt exceeds delegation then assume all credit is borrowed. Not 100% accurate but reasonable
-        // // Since borrowing not internal to contract we cant know how much credit was borrowed vs reserve price dropping.
-        // uint256 unborrowedDebt =
-        //     totalDebtBase > scaledDelegatedCredit ? totalDebtBase : scaledDelegatedCredit - totalDebtBase;
-        // uint256 maxDebt = totalDebtBase + unborrowedDebt;
-
-        // // Avoid division by zero
-        // if (maxDebt == 0) return uint8(convertToDecimal(hf, 18, 2)); // returns 100
-        // // max debt borrowed already
-        // if (unborrowedDebt == totalDebtBase) return uint8(convertToDecimal(hf, 18, 0));
-
-        // return uint8((totalCollateralBase * ltv) / maxDebt / BPS_COEFFICIENT);
+            ERC20(debtAsset).approve(address(aaveMarket), dubloons);
+            // Aave lets you send # > debt so you can pay off all interest accrued and sets borrowing to off for u 
+            // https://github.com/aave-dao/aave-v3-origin/blob/464a0ea5147d204140ceda42a433656a58c8e212/src/contracts/protocol/libraries/logic/BorrowLogic.sol#L197
+            aaveMarket.repay(debtAsset, dubloons, AAVE_INTEREST_MODE, address(this));
+        }
     }
 
+
     /// Helper functions
+
+    /// @notice returns worst case scenario health factor if all credit extended is borrowed at the same time
+    function getExpectedHF() public view returns (uint8) {
+        (,,,,, uint256 hf) = aaveMarket.getUserAccountData(address(this));
+        return uint8(convertToDecimal(hf, 18, 0));
+    }
 
     /// @notice total amount of tokens deposited in aave. Denominated in reserrveToken decimals
     function underlying() public view returns (uint256) {
@@ -330,10 +335,11 @@ contract FunETH is IFunETH, ERC20 {
 
     /// @notice returns current health factor disregarding future potential debt from NN loans
     function getYieldEarned() public view returns (uint256) {
+        // TODO delete  - 1 suffix
         return underlying() - totalSupply() - 1; // -1 to account for rounding errors in aave
     }
 
-    // TODO should turn price + decimals func into lib for NNTokens
+    // TODO Basically here down should turn price + decimals func into lib for all Fun contracts
 
     /// @notice returns price of asset in USD 8 decimals from Aave/Chainlink oracles
     /// @dev Assumes Aave only uses USD price oracles. e.g. not stETH/ETH but shouldnt be relevant for simple assets
@@ -341,6 +347,7 @@ contract FunETH is IFunETH, ERC20 {
         return IAaveMarket(aaveMarket.ADDRESSES_PROVIDER()).getPriceOracle().getAssetPrice(asset);
     }
 
+    // TODO delete both these helper functions for price()
     function reserveAssetPrice() public view returns (uint256) {
         return price(address(reserveToken));
     }
@@ -383,15 +390,24 @@ contract FunETH is IFunETH, ERC20 {
         return true;
     }
 
-    function recoverTokens(address token) public {
-        if (token == address(aToken)) revert InvalidToken();
-        // TODO add debtAsset once we add RSA
+    function recoverTokens(address token) public returns(uint256 amount) {
         if (token == address(0)) {
-            (bool success,) = FUN_OPS.call{value: address(this).balance}("");
+            // retrieve raw eth sent to ops multisig
+            amount = address(this).balance;
+            (bool success,) = FUN_OPS.call{value: amount}("");
             assert(success);
         } else {
-            IERC20x(token).transfer(FUN_OPS, IERC20x(token).balanceOf(address(this)));
+            // use pullReserves() for these
+            if(token == address(reserveToken)) revert InvalidToken();
+            if(token == address(aToken)) revert InvalidToken();
+
+            amount = IERC20x(token).balanceOf(address(this));
+            if(token == address(debtToken)) farm(debtAsset, amount);
+            // retrieve raw tokens sent to ops multisig
+            else IERC20x(token).transfer(FUN_OPS, IERC20x(token).balanceOf(address(this)));
         }
+
+        emit PullReserves(msg.sender, token, amount);
     }
 
     function getContractSize(address _contract) private view returns (uint256 size) {

@@ -41,8 +41,8 @@ interface IFunETH {
     function debtToken() external returns (IERC20x);
 
     // Treasurer functions
-    function lend(address mate, uint256 dubloons, uint16 apr, string memory name, string memory symbol) external;
-    function pullReserves(uint256 dubloons) external;
+    function lend(address mate, address rsa, uint256 dubloons) external;
+    function pullReserves(uint256 dubloons, address asset) external;
 
     // WETH functionality
     function deposit(uint256 dubloons) external;
@@ -54,7 +54,7 @@ interface IFunETH {
     function increaseAllowance(address spender, uint256 addedValue) external returns (bool);
 
     // aave integrations
-    function farm(uint256 dubloons) external;
+    function farm(address asset, uint256 dubloons) external;
     function underlying() external returns (uint256);
     function getYieldEarned() external returns (uint256);
     function getExpectedHF() external returns (uint8);
