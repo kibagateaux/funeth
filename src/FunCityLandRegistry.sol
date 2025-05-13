@@ -80,6 +80,7 @@ contract FunCityLandRegistry is ERC721, GPv2Helper {
     error OwnerCannotUnstake();
     error InvalidStake();
     error InvalidNNToken();
+    error InvalidCurator();
     error AlreadyInitialized();
     error InactiveProperty();
     error OwnershipNotFinalized();
@@ -88,7 +89,6 @@ contract FunCityLandRegistry is ERC721, GPv2Helper {
     error StakeDoesNotExist();
 
     constructor() ERC721() {}
-    
 
     // TODO attack vectors to test.
     // 1. buyer stake approved then transfers stake token
@@ -104,6 +104,8 @@ contract FunCityLandRegistry is ERC721, GPv2Helper {
     //
     function initialize(address _funETH, address _funUSDC, address _curator) public {
         if (address(funETH) != address(0)) revert AlreadyInitialized();
+        if (_funETH == address(0) || _funUSDC == address(0)) revert InvalidNNToken();
+        if (_curator == address(0)) revert InvalidCurator();
         funETH = IFunETH(_funETH);
         funUSDC = IFunETH(_funUSDC);
         USDC = funUSDC.reserveToken();
@@ -227,14 +229,14 @@ contract FunCityLandRegistry is ERC721, GPv2Helper {
     function depositUSDCAndStake(uint64 lotID, address owner, uint128 stakeAmount) public returns (uint256) {
         USDC.transferFrom(msg.sender, address(this), stakeAmount);
         USDC.approve(address(funUSDC), stakeAmount);
-        funUSDC.depositWithPreference(stakeAmount, _properties[lotID].city, address(this));
+        funUSDC.depositWithPreference(stakeAmount, address(this), _properties[lotID].city, address(this));
         return stake(lotID, owner, address(funUSDC), stakeAmount);
     }
 
     function depositETHAndStake(uint64 lotID, address owner) public payable returns (uint256) {
         WETH.deposit{value: msg.value}();
         WETH.approve(address(funETH), msg.value);
-        funETH.depositWithPreference(msg.value, _properties[lotID].city, address(this));
+        funETH.depositWithPreference(msg.value, address(this), _properties[lotID].city, address(this));
         return stake(lotID, owner, address(funETH), uint128(msg.value));
     }
 
@@ -481,7 +483,7 @@ contract FunCityLandRegistry is ERC721, GPv2Helper {
         });
 
         orderParams[order.hash(GPv2Order.COWSWAP_DOMAIN_SEPARATOR)] =
-            OrderMetadata({ownerID: lotID, deadline: deadline, minPrice: uint128(funETH.reserveAssetPrice())});
+            OrderMetadata({ownerID: lotID, deadline: deadline, minPrice: uint128(funETH.price(true))});
 
         // TODO add uid to event. abi.encodePacked(order.hash, address(this),deadline);
         // emit OrderInitiated(address(funETH), address(funUSDC), order.hash(GPv2Order.COWSWAP_DOMAIN_SEPARATOR), partron.stakeAmount, _properties[lotID].price, deadline);
@@ -534,7 +536,7 @@ contract FunCityLandRegistry is ERC721, GPv2Helper {
 
     function _assertStakeValuation(uint64 lotID, address nnToken, uint128 stakeAmount) internal view {
         assert(_properties[lotID].status == PropertyStatus.Listed);
-        try IFunETH(nnToken).reserveAssetPrice() returns (uint256 reservePrice) {
+        try IFunETH(nnToken).price(true) returns (uint256 reservePrice) {
             // ensure stake at least matches listing price
             // TODO check vs deposit not full price
             if (

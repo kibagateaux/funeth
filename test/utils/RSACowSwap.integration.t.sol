@@ -13,10 +13,9 @@
 //     CowSwap Market Order Creation
 
 //     Integration Tests
-    
+
 //     **********************
 //     *********************/
-
 
 //     // TODO what happens if we iniitate multiple orders for the same token inbetween the first one being finalized?
 //     // could happen with same tokens or new revenue tokens between trade inits
@@ -38,8 +37,8 @@
 
 //          GPv2Order.Data memory expectedOrder = GPv2Order.Data({
 //             kind: GPv2Order.KIND_SELL,
-//             receiver: address(rsa), // hardcode so trades are trustless 
-//             sellToken: sellToken,  // hardcode so trades are trustless 
+//             receiver: address(rsa), // hardcode so trades are trustless
+//             sellToken: sellToken,  // hardcode so trades are trustless
 //             buyToken: buyToken,
 //             sellAmount: 1,
 //             buyAmount: 0,
@@ -54,10 +53,9 @@
 
 //         GPv2Order.Data memory order = rsa.generateOrder(sellToken, 1, 0, deadline);
 //         bytes32 orderHash = order.hash(COWSWAP_DOMAIN_SEPARATOR);
-        
+
 //         assertEq(expectedHash, orderHash);
 //     }
-
 
 //     function test_initiateOrder_returnsOrderHash() public {
 //         _depositRSA(lender, rsa);
@@ -80,10 +78,9 @@
 //         vm.startPrank(lender);
 //         bytes32 orderHash = rsa.initiateOrder(sellToken, 1, 0, deadline);
 //         vm.stopPrank();
-        
+
 //         assertEq(orderHash, expectedHash);
 //     }
-
 
 //     function test_initiateOrder_mustOwnSellAmount() public {
 //         _depositRSA(lender, rsa);
@@ -139,7 +136,7 @@
 //         vm.startPrank(borrower);
 //         rsa.initiateOrder(address(revenueToken), 1, 0, deadline);
 //         vm.stopPrank();
-        
+
 //         vm.startPrank(rando);
 //         vm.expectRevert("Caller must be stakeholder");
 //         rsa.initiateOrder(address(revenueToken), 1, 0, deadline);
@@ -225,14 +222,13 @@
 
 //     // TODO!!! need to test that the hardcoded order params that isValidSignature never passes if any of those conditions are met
 
-
 //     /*********************
 //     **********************
-    
+
 //     Event Emissions
-    
+
 //     Unit Tests
-    
+
 //     **********************
 //     *********************/
 

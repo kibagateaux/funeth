@@ -8,24 +8,31 @@ import {IFunETH, IERC20x, IFunFactory, IAaveMarket, ReserveData} from "../Interf
 // TODO add full solmate/ERC4626 functionality. Must functions super simple since static vars e.g. convertToShares, .
 
 /**
-* @title Revenue Share Agreemnt
-* @author Kiba Gateaux
-* @notice Allows a borrower with revenue streams collateralized in a Spigot to borrow against them from a single lender
-* Lender is guaranteed a specific return but payments are variable based on revenue and % split between borrower and lender.
-* Claims on revenue are tokenized as ERC20 at 1:1 redemption rate for the credit token being lent/repaid.
-* All claim tokens are minted immediately to the lender and must be burnt to claim credit tokens. 
-* Borrower or Lender can trade any revenue token at any time to the token owed to lender using CowSwap Smart Orders
-* @dev - reference  https://github.com/charlesndalton/milkman/blob/main/contracts/Milkman.sol
-*/
+ * @title Revenue Share Agreemnt
+ * @author Kiba Gateaux
+ * @notice Allows a borrower with revenue streams collateralized in a Spigot to borrow against them from a single lender
+ * Lender is guaranteed a specific return but payments are variable based on revenue and % split between borrower and lender.
+ * Claims on revenue are tokenized as ERC20 at 1:1 redemption rate for the credit token being lent/repaid.
+ * All claim tokens are minted immediately to the lender and must be burnt to claim credit tokens.
+ * Borrower or Lender can trade any revenue token at any time to the token owed to lender using CowSwap Smart Orders
+ * @dev - reference  https://github.com/charlesndalton/milkman/blob/main/contracts/Milkman.sol
+ */
 contract FunFunding is ERC20, Ownable {
     using GPv2Order for GPv2Order.Data;
-    enum STATUS { INACTIVE, INIT, ACTIVE, REPAID, CANCELED }
+
+    enum STATUS {
+        INACTIVE,
+        INIT,
+        ACTIVE,
+        REPAID,
+        CANCELED
+    }
 
     // TODO add network fee as param/call from factory?
     uint16 public NETWORK_FEE_BPS; // origination fee 0.33%
     uint16 internal constant BPS_COEFFICIENT = 10_000; // offset bps decimals
 
-    bytes4 internal constant ERC_1271_MAGIC_VALUE =  0x1626ba7e;
+    bytes4 internal constant ERC_1271_MAGIC_VALUE = 0x1626ba7e;
     bytes4 internal constant ERC_1271_NON_MAGIC_VALUE = 0xffffffff;
     uint32 internal constant MAX_TRADE_DEADLINE = uint32(1 days);
     /// @notice The contract that settles all trades. Must approve sell tokens to this address.
@@ -90,49 +97,41 @@ contract FunFunding is ERC20, Ownable {
     );
     event OrderFinalized(bytes32 indexed tradeHash);
     event Repay(uint256 amount);
-    event Deposit(
-        address indexed sender,
-        address indexed owner,
-        uint256 assets,
-        uint256 shares
-    );
+    event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(
-        address indexed sender,
-        address indexed receiver,
-        address indexed owner,
-        uint256 assets,
-        uint256 shares
+        address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares
     );
     event TermInitiated(uint256 deposited, uint256 fees);
 
     constructor() ERC20() {}
-    
+
     modifier whileActive() {
-        if(status != STATUS.ACTIVE) {
+        if (status != STATUS.ACTIVE) {
             revert InvalidStatus();
         }
         _;
     }
 
-    /***
-    * @notice Initialize the RSA
-    * @dev assumes deployed thru factory so credit network is msg.sender in FeeClaimer
-    * @param _borrower - address of the borrower
-    * @param _creditToken - address of the credit token
-    * @param apr - rate of return on RSA financing in BPS. e.g. 600 = 6% more tokens claimable by depositors
-    * @param _name - name of the RSA
-    * @param _symbol - symbol of the RSA
+    /**
+     *
+     * @notice Initialize the RSA
+     * @dev assumes deployed thru factory so credit network is msg.sender in FeeClaimer
+     * @param _borrower - address of the borrower
+     * @param _creditToken - address of the credit token
+     * @param _apr - rate of return on RSA financing in BPS. e.g. 600 = 6% more tokens claimable by depositors
+     * @param __name - name of the RSA
+     * @param __symbol - symbol of the RSA
      */
     function initialize(
         address _borrower,
         address _weth,
         address _creditToken,
-        uint16 _apr, 
+        uint16 _apr,
         string memory __name,
         string memory __symbol
     ) external {
-        if(status != STATUS.INACTIVE)   revert AlreadyInitialized();
-        if(_borrower == address(0))     revert InvalidBorrowerAddress();
+        if (status != STATUS.INACTIVE) revert AlreadyInitialized();
+        if (_borrower == address(0)) revert InvalidBorrowerAddress();
 
         // ERC20 vars
         _name = string.concat("Revenue Share: ", __name);
@@ -152,26 +151,27 @@ contract FunFunding is ERC20, Ownable {
     function name() public view virtual override returns (string memory) {
         return _name;
     }
+
     function symbol() public view virtual override returns (string memory) {
         return _symbol;
     }
 
     /**
-    * @notice Returns the amount of assets yet to be redeemed from RSA
-    * @dev ERC4626
-    * @return total assets owned by RSA that are eventually claimable
-    */
-    function totalAssets() public view returns(uint256) {
+     * @notice Returns the amount of assets yet to be redeemed from RSA
+     * @dev ERC4626
+     * @return total assets owned by RSA that are eventually claimable
+     */
+    function totalAssets() public view returns (uint256) {
         return totalOwed + claimableAmount;
     }
 
     /**
-    * @notice Lets lenders deposit Borrower's requested loan amount into RSA and receive back redeemable shares of revenue stream
-    * @dev callable by anyone if offer not accepted yet
-    * @return redeemable shares minted. more than amount based on apr for 1:1 redemption
-    */
-    function deposit(uint256 amount, address _receiver) public returns(uint256 redeemable) {
-        if(status != STATUS.INIT) {
+     * @notice Lets lenders deposit Borrower's requested loan amount into RSA and receive back redeemable shares of revenue stream
+     * @dev callable by anyone if offer not accepted yet
+     * @return redeemable shares minted. more than amount based on apr for 1:1 redemption
+     */
+    function deposit(uint256 amount, address _receiver) public returns (uint256 redeemable) {
+        if (status != STATUS.INIT) {
             revert InvalidStatus();
         }
 
@@ -187,35 +187,36 @@ contract FunFunding is ERC20, Ownable {
     }
 
     /**
-    * @notice Lets Lender redeem their original tokens.
-    * @param _amount - amount of shares to redeem @ 1:1 ratio for asset
-    * @param _to - who to send claimed creditTokens to
-    * @dev callable by anyone if round not closed by borrower yet. 
-    * @dev results vary based on status of round.
-    * @return redeemable - underlying assets returned for shares
-    */
-    function redeem(uint256 _amount, address _to, address _owner) public returns(uint256 redeemable) {
-        if(status == STATUS.INIT || status == STATUS.CANCELED) {
+     * @notice Lets Lender redeem their original tokens.
+     * @param _amount - amount of shares to redeem @ 1:1 ratio for asset
+     * @param _to - who to send claimed creditTokens to
+     * @dev callable by anyone if round not closed by borrower yet.
+     * @dev results vary based on status of round.
+     * @return redeemable - underlying assets returned for shares
+     */
+    function redeem(uint256 _amount, address _to, address _owner) public returns (uint256 redeemable) {
+        if (status == STATUS.INIT || status == STATUS.CANCELED) {
             // if deal never launches, redeem for original deposit values not reward rate.
             // Better UX to always have 1:1 redeem rate for token value inflating for yield instead of a variable redeem rate on every loan
             redeemable = (_amount * BPS_COEFFICIENT) / rewardRate;
         }
-        
-        if(status == STATUS.ACTIVE || status == STATUS.REPAID) {
+
+        if (status == STATUS.ACTIVE || status == STATUS.REPAID) {
             // _burn only checks their RSA token balance so asset.transfer may move tokens
             // we havent properly accounted for as revenue yet.
             // If asset.balanceOf(this) > _amount but redeem() fails then call
             // repay() to account for the missing tokens and redeem() again.
-            if(_amount > claimableAmount)
+            if (_amount > claimableAmount) {
                 revert ExceedClaimableTokens(claimableAmount);
-            
+            }
+
             redeemable = _amount;
             claimableAmount -= redeemable;
-        } 
+        }
 
-        // @NOTE use _amount here as initial shares. 
+        // @NOTE use _amount here as initial shares.
         // check that caller has approval on _owner tokens
-        if(msg.sender != _owner) {
+        if (msg.sender != _owner) {
             _spendAllowance(_owner, msg.sender, _amount);
         }
         _burn(_owner, _amount);
@@ -227,17 +228,17 @@ contract FunFunding is ERC20, Ownable {
     }
 
     /**
-    * @notice Accounts for all credit tokens bought and updates debt and deposit balances
-    * @dev callable by anyone.
-    */
-    function repay() whileActive external returns(uint256 claimed) {
+     * @notice Accounts for all credit tokens bought and updates debt and deposit balances
+     * @dev callable by anyone.
+     */
+    function repay() external whileActive returns (uint256 claimed) {
         // The lender can only deposit once and lent tokens are NOT stored in this contract
         // so any new tokens are from fees and we just check against current fees deposits
         uint256 currBalance = ERC20(asset).balanceOf(address(this));
         uint256 newPayments = currBalance - claimableAmount;
         uint256 maxPayable = totalOwed; // cache in memory
 
-        if(newPayments >= maxPayable) {
+        if (newPayments >= maxPayable) {
             // if fees > debt then repay all debt
             claimableAmount = maxPayable;
             totalOwed = 0;
@@ -254,11 +255,11 @@ contract FunFunding is ERC20, Ownable {
     }
 
     /**
-    * @notice Distributes all deposits to borrower and updates total returns + fees based on redeem rate
-    * @dev callable by anyone.
-    */
-    function initiateTerm() onlyOwner external {
-        if(status != STATUS.INIT) {
+     * @notice Distributes all deposits to borrower and updates total returns + fees based on redeem rate
+     * @dev callable by anyone.
+     */
+    function initiateTerm() external onlyOwner {
+        if (status != STATUS.INIT) {
             revert InvalidStatus();
         }
         // prevent reentrancy so before all external calls
@@ -282,34 +283,33 @@ contract FunFunding is ERC20, Ownable {
         emit TermInitiated(deposited, fee);
     }
 
-    function cancel() onlyOwner external {
-        if(status != STATUS.INIT) {
+    function cancel() external onlyOwner {
+        if (status != STATUS.INIT) {
             revert InvalidStatus();
         }
 
         status = STATUS.CANCELED;
         // TODO anything else to do? Me thinks no
     }
-    
+
     function _completeTerm() internal {
         status = STATUS.REPAID;
         // TODO anything else to do? Me thinks no
     }
 
     /**
-    * @notice Gives Credit Network the ability to trade any revenue token into the token owed by lenders
-    *   trading access on factory allowing multiple methodlogies/traders for resistance.
-    * @param _sellToken - The token claimed from Spigot to sell for asset
-    * @param _sellAmount - How many revenue tokens to sell. MUST be > 0
-    * @param _minBuyAmount - Minimum amount of asset to buy during trade. Can be 0
-    * @param _deadline - block timestamp that trade is valid until
-    */
-    function initiateOrder(
-        address _sellToken,
-        uint256 _sellAmount,
-        uint256 _minBuyAmount,
-        uint32 _deadline
-    ) whileActive external returns(bytes32 tradeHash) {
+     * @notice Gives Credit Network the ability to trade any revenue token into the token owed by lenders
+     *   trading access on factory allowing multiple methodlogies/traders for resistance.
+     * @param _sellToken - The token claimed from Spigot to sell for asset
+     * @param _sellAmount - How many revenue tokens to sell. MUST be > 0
+     * @param _minBuyAmount - Minimum amount of asset to buy during trade. Can be 0
+     * @param _deadline - block timestamp that trade is valid until
+     */
+    function initiateOrder(address _sellToken, uint256 _sellAmount, uint256 _minBuyAmount, uint32 _deadline)
+        external
+        whileActive
+        returns (bytes32 tradeHash)
+    {
         // TODO anyone or only owner+borrower? Depends how much we want to trust cowswap system vs counterparty risk
 
         _assertOrderParams(_sellToken, _sellAmount, _minBuyAmount, _deadline);
@@ -322,12 +322,7 @@ contract FunFunding is ERC20, Ownable {
         // we always specify a specific amount of revenue tokens to sell but not all tokens support increaseAllowance
         ERC20(_sellToken).approve(COWSWAP_SETTLEMENT_ADDRESS, type(uint256).max);
 
-        tradeHash = generateOrder(
-            _sellToken,
-            _sellAmount,
-            _minBuyAmount,
-            _deadline
-        ).hash(COWSWAP_DOMAIN_SEPARATOR);
+        tradeHash = generateOrder(_sellToken, _sellAmount, _minBuyAmount, _deadline).hash(COWSWAP_DOMAIN_SEPARATOR);
         // hash order with settlement contract as EIP-712 verifier
         // Then settlement calls back to our isValidSignature to verify trade
 
@@ -336,20 +331,18 @@ contract FunFunding is ERC20, Ownable {
     }
 
     /**
-    * @notice Verifies that a trade is valid and has not expired for CowSwap execution
-    * @param _tradeHash - The hash of the trade that was initiated within generateOrder()
-    * @param _encodedOrder - The encoded order by CowSwap network
-    * @return ERC_1271_MAGIC_VALUE if the trade is valid. ERC_1271_NON_MAGIC_VALUE otherwise
-    */
+     * @notice Verifies that a trade is valid and has not expired for CowSwap execution
+     * @param _tradeHash - The hash of the trade that was initiated within generateOrder()
+     * @param _encodedOrder - The encoded order by CowSwap network
+     * @return ERC_1271_MAGIC_VALUE if the trade is valid. ERC_1271_NON_MAGIC_VALUE otherwise
+     */
     function isValidSignature(bytes32 _tradeHash, bytes calldata _encodedOrder) external view returns (bytes4) {
         GPv2Order.Data memory _order = abi.decode(_encodedOrder, (GPv2Order.Data));
 
-        
-        
         // if order created by RSA with initiateTrade() then auto-approve.
-        if(orders[_tradeHash] != 0) {
-        // TODO simplify by moving order validation logic here so only 1 tx needed?. Depends if permissionless or not
-            if(_order.validTo <= block.timestamp) {
+        if (orders[_tradeHash] != 0) {
+            // TODO simplify by moving order validation logic here so only 1 tx needed?. Depends if permissionless or not
+            if (_order.validTo <= block.timestamp) {
                 revert InvalidTradeDeadline();
             }
 
@@ -360,62 +353,52 @@ contract FunFunding is ERC20, Ownable {
         return ERC_1271_NON_MAGIC_VALUE;
     }
 
-    function _assertOrderParams(
-        address _sellToken,
-        uint256 _sellAmount,
-        uint256 _minBuyAmount,
-        uint32 _deadline
-    ) internal view {
+    function _assertOrderParams(address _sellToken, uint256 _sellAmount, uint256 _minBuyAmount, uint32 _deadline)
+        internal
+        view
+    {
         // require()s ordered by least gas intensive
         /// @dev https://docs.cow.fi/tutorials/how-to-submit-orders-via-the-api/4.-signing-the-order#security-notice
         require(_sellAmount != 0, "Invalid trade amount");
         require(totalOwed != 0, "No debt to trade for");
         require(_sellToken != asset, "Cant sell token being bought");
-        if(
-            _deadline < block.timestamp ||
-            _deadline > block.timestamp + MAX_TRADE_DEADLINE
-        ) { 
+        if (_deadline < block.timestamp || _deadline > block.timestamp + MAX_TRADE_DEADLINE) {
             revert InvalidTradeDeadline();
         }
     }
 
-    function generateOrder(
-        address _sellToken, 
-        uint256 _sellAmount, 
-        uint256 _minBuyAmount, 
-        uint32 _deadline
-    )
-        public view
-        returns(GPv2Order.Data memory) 
+    function generateOrder(address _sellToken, uint256 _sellAmount, uint256 _minBuyAmount, uint32 _deadline)
+        public
+        view
+        returns (GPv2Order.Data memory)
     {
         return GPv2Order.Data({
-            kind: GPv2Order.KIND_SELL,  // market sell revenue tokens, dont specify zamount bought.
-            receiver: address(this),    // hardcode so trades are trustless 
+            kind: GPv2Order.KIND_SELL, // market sell revenue tokens, dont specify zamount bought.
+            receiver: address(this), // hardcode so trades are trustless
             sellToken: _sellToken,
-            buyToken: asset,      // hardcode so trades are trustless 
+            buyToken: asset, // hardcode so trades are trustless
             sellAmount: _sellAmount,
             buyAmount: _minBuyAmount,
             feeAmount: 0,
             validTo: _deadline,
-            appData: 0,                 // no custom data for isValidsignature
+            appData: 0, // no custom data for isValidsignature
             partiallyFillable: false,
             sellTokenBalance: GPv2Order.BALANCE_ERC20,
             buyTokenBalance: GPv2Order.BALANCE_ERC20
         });
     }
 
-
     /**
-    * @notice Lets Borrower redeem any excess fee not needed to repay lenders.
-    *         We assume any token in this contract is a fee token and is collateral
-    *         so only callable if no lender deposits yet or after RSA is fully repaid.
-    *         Full token balance is swept to `_to`.
-    * @dev   If you need to sweep raw ETH call wrapETH() first.
-    * @param _token - amount of RSA tokens to redeem @ 1:1 ratio for asset
-    * @param _to    - who to sweep tokens to
-    */
-    function sweep(address _token, address _to) external onlyOwner returns(bool) {
-        if(status == STATUS.ACTIVE) revert InvalidStatus();
+     * @notice Lets Borrower redeem any excess fee not needed to repay lenders.
+     *         We assume any token in this contract is a fee token and is collateral
+     *         so only callable if no lender deposits yet or after RSA is fully repaid.
+     *         Full token balance is swept to `_to`.
+     * @dev   If you need to sweep raw ETH call wrapETH() first.
+     * @param _token - amount of RSA tokens to redeem @ 1:1 ratio for asset
+     * @param _to    - who to sweep tokens to
+     */
+    function sweep(address _token, address _to) external onlyOwner returns (bool) {
+        if (status == STATUS.ACTIVE) revert InvalidStatus();
 
         if (_token == address(0)) {
             (bool success,) = owner().call{value: address(this).balance}("");
@@ -423,52 +406,51 @@ contract FunFunding is ERC20, Ownable {
         }
 
         uint256 balance = ERC20(_token).balanceOf(address(this));
-        if(_token == asset) {
+        if (_token == asset) {
             // for native loan asset, diff calculations if it was not inited/cancelled or repaid.
-            uint256 withholdings = status ==STATUS.REPAID ?
+            uint256 withholdings = status == STATUS.REPAID
                 // If all debt is repaid but lenders still havent claimed underlying
                 // keep enough underlying for redemptions
-                claimableAmount :
+                ? claimableAmount
                 // if INIT/CANCELED prevent user deposits from being swept
-                (totalSupply() * BPS_COEFFICIENT) / rewardRate;
+                : (totalSupply() * BPS_COEFFICIENT) / rewardRate;
             ERC20(_token).transfer(_to, balance - withholdings);
         } else {
             ERC20(_token).transfer(_to, balance);
         }
-    }   
-
+    }
 
     /**
-    * @notice Wraps ETH to WETH (or other respective asset) because CoWswap only supports ERC20 tokens.
-    *         This is easier than using their ETH flow.
-    *         We dont allow native ETH as asset so any ETH is revenue and should be wrapped.
-    * @dev callable by anyone. no state change, MEV, exploit potential
-    * @return amount - amount of ETH wrapped 
-    */
-    function wrap() whileActive external returns(uint256 amount) {
+     * @notice Wraps ETH to WETH (or other respective asset) because CoWswap only supports ERC20 tokens.
+     *         This is easier than using their ETH flow.
+     *         We dont allow native ETH as asset so any ETH is revenue and should be wrapped.
+     * @dev callable by anyone. no state change, MEV, exploit potential
+     * @return amount - amount of ETH wrapped
+     */
+    function wrap() external whileActive returns (uint256 amount) {
         uint256 initialBalance = WETH.balanceOf(address(this));
         amount = address(this).balance;
 
         WETH.deposit{value: amount}();
-        
+
         uint256 postBalance = WETH.balanceOf(address(this));
-        if(postBalance - initialBalance != amount) {
+        if (postBalance - initialBalance != amount) {
             revert InvalidWETHDeposit();
         }
     }
 
     /**
-    * @notice Sends credit network fees 
-        Callable after all debt repaid and everyone else has claimed
-    * @param to - who to send fees to
-    */
+     * @notice Sends credit network fees
+     *     Callable after all debt repaid and everyone else has claimed
+     * @param to - who to send fees to
+     */
     function claimNetworkFees(address to) external {
         address network = networkFeeRecipient;
-        if(msg.sender != network) {
+        if (msg.sender != network) {
             revert NotNetworkFeeRecipient();
         }
         // can only claim after everyone else claims for incentive alignment
-        if(status != STATUS.REPAID) {
+        if (status != STATUS.REPAID) {
             revert NotRepaid();
         }
 

@@ -6,8 +6,13 @@ import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
 library EnumerableSetUsage {
     using EnumerableSetLib for *;
     // private helpers from EnumerableSetLib
-        /// @dev Casts to a Bytes32Set.
-    function _toBytes32Set(EnumerableSetLib.Uint256Set storage s) public pure returns (EnumerableSetLib.Bytes32Set storage c) {
+    /// @dev Casts to a Bytes32Set.
+
+    function _toBytes32Set(EnumerableSetLib.Uint256Set storage s)
+        public
+        pure
+        returns (EnumerableSetLib.Bytes32Set storage c)
+    {
         /// @solidity memory-safe-assembly
         assembly {
             c.slot := s.slot
@@ -15,7 +20,11 @@ library EnumerableSetUsage {
     }
 
     /// @dev Casts to a Bytes32Set.
-    function _toBytes32Set(EnumerableSetLib.Int256Set storage s) public pure returns (EnumerableSetLib.Bytes32Set storage c) {
+    function _toBytes32Set(EnumerableSetLib.Int256Set storage s)
+        public
+        pure
+        returns (EnumerableSetLib.Bytes32Set storage c)
+    {
         /// @solidity memory-safe-assembly
         assembly {
             c.slot := s.slot

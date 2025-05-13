@@ -47,10 +47,8 @@ interface IFunETH {
     // WETH functionality
     function deposit(uint256 dubloons) external;
     function depositAndApprove(address spender, uint256 dubloons) external;
-    function depositOnBehalfOf(uint256 dubloons, address receiver, address referrer) external;
-    function depositWithPreference(uint256 dubloons, address city, address referrer) external;
+    function depositWithPreference(uint256 dubloons, address to, address city, address referrer) external;
     function withdraw(uint256 dubloons) external;
-    function withdrawTo(uint256 dubloons, address to) external;
     function increaseAllowance(address spender, uint256 addedValue) external returns (bool);
 
     // aave integrations
@@ -58,10 +56,7 @@ interface IFunETH {
     function underlying() external returns (uint256);
     function getYieldEarned() external returns (uint256);
     function getExpectedHF() external returns (uint8);
-    function price(address asset) external returns (uint256);
-
-    function reserveAssetPrice() external view returns (uint256);
-    function debtAssetPrice() external view returns (uint256);
+    function price(bool isReserveRequest) external view returns (uint256);
 
     function convertToDecimal(uint256 amount, uint8 currentDecimals, uint8 targetDecimals)
         external
@@ -85,8 +80,8 @@ interface IFunFunding is IERC20 {
         string memory _sym
     ) external;
 
-    function deposit(uint256 amount, address _receiver) external returns(bool);
-    function redeem(uint256 _amount, address _to, address _owner) external returns(bool);
+    function deposit(uint256 amount, address _receiver) external returns (uint256);
+    function redeem(uint256 _amount, address _to, address _owner) external returns (uint256);
 
     function initiateTerm() external;
     function cancel() external;
@@ -100,8 +95,12 @@ interface IFunFunding is IERC20 {
 }
 
 interface IFunFactory {
-    function deployFunToken(address reserveToken, address debtToken, string memory name, string memory symbol) external returns (address);
-    function deployFunFunding(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol) external returns (address);
+    function deployFunToken(address reserveToken, address debtToken, string memory name, string memory symbol)
+        external
+        returns (address);
+    function deployFunFunding(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol)
+        external
+        returns (address);
     function deployLandRegistry(address curator) external returns (address);
 
     function setDefaultFunTokens(address _funETH, address _funUSDC) external;

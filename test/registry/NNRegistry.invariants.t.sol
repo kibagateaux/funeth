@@ -38,7 +38,6 @@ contract NNRegistryInvariants is NNRegistryCoreTest {
     // all stakes + unstakes = all funETH/funUSDC deposits - funETH/funUSDC withdrawals
 
     //
-
     function invariant_callSummary() public view {
         handler.callSummary();
     }

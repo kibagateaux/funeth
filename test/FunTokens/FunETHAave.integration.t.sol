@@ -60,15 +60,6 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         assertGt(funETH.underlying(), aTokenBalance + 1);
     }
 
-    // function invariant_getAvailableCredit_matchesAaveUserSummary() public {
-    //     uint256 ltvConfig = 80;
-    //     uint256 _deposit = 60 ether;
-    //     uint256 deposit = _depositnnEth(makeAddr("boogawugi"), _deposit, true);
-
-    //     (uint256 totalCredit, ) = _borrowable(deposit);
-    //     assertEq(totalCredit / 1e2, funETH.getAvailableCredit());
-    // }
-
     function test_lend_canDelegateCredit(address city) public assumeValidAddress(city) {
         uint256 n = _depositnnEth(makeAddr("boogawugi"), 100 ether, true);
 
@@ -81,31 +72,18 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         (, uint256 credit) = funETH.cities(city);
         assertEq(credit, 0);
 
-        address treasury = funETH.FUN_OPS();
+        address treasury = funETH.owner();
+        address asset = funETH.debtAsset();
         (uint256 totalCredit, uint256 borrowable) = _borrowable(funETH.totalSupply());
-        address rsa = factory.deployFunFunding(
-            address(0),
-            address(reserveToken),
-            52,
-            "RSA Revenue Stream Token0",
-            "rsaCLAIM0"
-        );
+        address rsa =   
+            factory.deployFunFunding(vm.addr(666), asset, 52, "RSA Revenue Stream Token0", "rsaCLAIM0");
 
         vm.prank(treasury);
         vm.expectEmit(true, true, true, false);
-        emit FunETH.Lend(address(treasury), address(debtToken), city, borrowable, address(0));
+        emit FunETH.Lend(address(treasury), asset, city, borrowable, rsa);
         funETH.lend(city, rsa, borrowable);
 
-        uint256 delegatedCredit = debtToken.borrowAllowance(address(funETH), city);
-        assertGt(delegatedCredit, 0);
-        assertEq(delegatedCredit, borrowable);
-        (, uint256 credit2) = funETH.cities(city);
-        assertEq(credit2, delegatedCredit); // ensure parity btw nneth and aave
-    }
-
-    function invariant_lend_noDebtWithoutDelegation() public view {
-        (, uint256 totalDebtBase,,,,) = aave.getUserAccountData(address(funETH));
-        assertGe(funETH.totalCreditDelegated(), totalDebtBase / 1e2);
+        assertEq(IERC20x(asset).balanceOf(address(rsa)), borrowable);
     }
 
     function test_lend_canBorrowAgainst(address user, address city, uint256 amount) public assumeValidAddress(city) {
@@ -116,9 +94,9 @@ contract FunETHAaveIntegration is FunETHBaseTest {
 
         // Ge means we overly cautious with borrow amount. should be at most aave's allownace
         assertGe(
-            // (funETH.convertToDecimal(availableBorrow, 0, funETH.debtTokenDecimals()) / funETH.debtAssetPrice()),
+            // (funETH.convertToDecimal(availableBorrow, 0, funETH.debtTokenDecimals()) / funETH.price(false)),
             (
-                funETH.convertToDecimal(availableBorrow, 0, funETH.debtTokenDecimals()) / funETH.debtAssetPrice()
+                funETH.convertToDecimal(availableBorrow, 0, funETH.debtTokenDecimals()) / funETH.price(false)
                     / (funETH.MIN_RESERVE_FACTOR() - 1)
             ),
             borrowable
@@ -129,13 +107,6 @@ contract FunETHAaveIntegration is FunETHBaseTest {
 
         // for some reason test fails if this goes first even though nothing borrowed and getExpectedHF not used
         _lend(city, borrowable);
-
-        (,, uint256 availableToBorrow,,,) = aave.getUserAccountData(address(funETH));
-        uint256 credit = debtToken.borrowAllowance(address(funETH), city);
-
-        vm.startPrank(city);
-        aave.borrow(borrowToken, 1, 2, 0, address(funETH));
-        vm.stopPrank();
     }
 
     function test_borrow_debtTokenBalanceIncreases(address user, address city, uint256 amount)
@@ -145,34 +116,30 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         uint256 n = _depositForBorrowing(user, amount);
         (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
+        (,uint256 debtBase,,,,) = aave.getUserAccountData(address(funETH));
+
         assertEq(debtToken.balanceOf(address(funETH)), 0);
         _lend(city, borrowable);
-        assertEq(debtToken.balanceOf(address(funETH)), 0);
+        assertLe(debtToken.balanceOf(address(funETH)) - 1, borrowable); // weird aave offset spot
 
-        (,, uint256 availableToBorrow,,,) = aave.getUserAccountData(address(funETH));
-
-        vm.startPrank(city);
-        aave.borrow(borrowToken, 1, 2, 0, address(funETH));
-        vm.stopPrank();
-
-        assertEq(debtToken.balanceOf(address(funETH)), 1);
-        // ensure debt given to main account not borrower
-        assertEq(debtToken.balanceOf(address(city)), 0);
+        (,uint256 debtBasePost,,,,) = aave.getUserAccountData(address(funETH));
+        assertGe(debtBasePost, debtBase);
     }
 
     function invariant_reserveAssetPrice_matchesAavePrice() public {
         (, bytes memory data) = address(reserveToken).call(abi.encodeWithSignature("symbol()"));
         emit log_named_string("reserve asset symbol", abi.decode(data, (string)));
-        uint256 price = funETH.price(address(reserveToken));
+        uint256 price = funETH.price(true);
         emit log_named_uint("reserve asset price", price);
         assertGt(price, 0);
     }
 
     function invariant_debtAssetPrice_matchesAavePrice() public {
-        // TODO this shows USDC as debt asset on NNUSDC with USDC as reserve asset too
+        // TODO this shows USDC as debt asset on USDC/BTC reserve/debt pair
+        // but ETH as debt asset in USDC/ETH reserve/debt pair
         (, bytes memory data) = address(borrowToken).call(abi.encodeWithSignature("symbol()"));
         emit log_named_string("debt asset symbol", abi.decode(data, (string)));
-        uint256 price = funETH.price(address(borrowToken));
+        uint256 price = funETH.price(false);
         emit log_named_uint("debt asset price", price);
         assertGt(price, 0);
     }

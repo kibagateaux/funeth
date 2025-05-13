@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {FunETH} from "../../src/FunETH.sol";
 import {IERC20x, IAaveMarket, IFunETH} from "../../src/Interfaces.sol";
 import {FunFactory} from "../../src/utils/FunFactory.sol";
+
 contract FunETHBaseTest is Test {
     FunETH public funETH;
 
@@ -50,7 +51,7 @@ contract FunETHBaseTest is Test {
     modifier assumeValidAddress(address target) {
         //  addresses that will throw errors or miscalculations during testing
         vm.assume(address(0) != target);
-        // vm.assume(target != funETH.FUN_OPS()); // maybe dont want this here
+        // vm.assume(target != funETH.owner()); // maybe dont want this here
         // vm.assume(address(WETH) != target);
         vm.assume(address(USDC) != target);
         // vm.assume(address(BTC) != target);
@@ -118,8 +119,8 @@ contract FunETHBaseTest is Test {
         // probs attack prevention method on aave protocol so move 1 block ahead to increase balance from interest
         vm.warp(block.timestamp + 1 weeks);
 
-        vm.prank(funETH.FUN_OPS());
-        address rsa = factory.deployFunFunding(address(0), address(reserveToken), 100, "test", "test");
+        address rsa = factory.deployFunFunding(city, funETH.debtAsset(), 100, "test", "test");
+        vm.prank(funETH.owner());
         funETH.lend(city, rsa, amount);
     }
 

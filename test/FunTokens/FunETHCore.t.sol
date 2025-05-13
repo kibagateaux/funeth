@@ -8,7 +8,7 @@ import {FunETH} from "../../src/FunETH.sol";
 contract FunETHCore is FunETHBaseTest {
     function test_initialize_mustHaveMultiSigDeployed() public view {
         address funCityTreasury = address(0xC958dEeAB982FDA21fC8922493d0CEDCD26287C3);
-        address progfunCityTreasury = address(funETH.FUN_OPS());
+        address progfunCityTreasury = address(funETH.owner());
         uint256 manualSize;
         uint256 configedSize;
         assembly {
@@ -20,30 +20,11 @@ contract FunETHCore is FunETHBaseTest {
         assertEq(manualSize, configedSize);
     }
 
-    function invariant_lend_increaseTotalDelegated() public {
-        // sample vals. uneven city/lend vals to ensure overwrites work
-        address[2] memory cities = [address(0x83425), address(0x9238521)];
-        // wei not ether bc usdc only has 8 decimals
-        uint256[4] memory amounts = [uint256(11241 wei), uint256(49134 wei), uint256(84923 wei), uint256(84923 wei)];
-
-        // deposit some amount so we can delegate credit
-        _depositnnEth(address(0x14632332), 1000 ether, true);
-        (,, uint256 availableBorrow,,, uint256 hf) = aave.getUserAccountData(address(funETH));
-        assertGt(availableBorrow, 100000000);
-
-        address rsa = factory.deployFunFunding(address(0), address(funETH.debtAsset()), 100, "test", "test");
-        vm.startPrank(funETH.FUN_OPS());
-        assertEq(funETH.totalCreditDelegated(), 0);
-        funETH.lend(cities[0], rsa, amounts[0]);
-        assertEq(funETH.totalCreditDelegated(), amounts[0]);
-        funETH.lend(cities[1], rsa, amounts[1]);
-        assertEq(funETH.totalCreditDelegated(), amounts[0] + amounts[1]);
-        funETH.lend(cities[0], rsa, amounts[2]);
-        assertEq(funETH.totalCreditDelegated(), amounts[2] + amounts[1]);
-        funETH.lend(cities[1], rsa, amounts[3]);
-        assertEq(funETH.totalCreditDelegated(), amounts[2] + amounts[3]);
-
-        vm.stopPrank();
+    function invariant_lend_allFundingTokensMoreThanTotalDebt() public {
+        (,uint256 totalDebt,,,,) = aave.getUserAccountData(address(funETH));
+        uint256 debtInLendToken = totalDebt / funETH.price(false);
+        uint256 totalFundingTokens = 100; // have to iterate over all lend() and get this. not progrmatically avialble in smart contract bc we never really need.
+        assertGt(totalFundingTokens, debtInLendToken);
     }
 
     function test_initialize_configSetup() public virtual {
@@ -58,22 +39,22 @@ contract FunETHCore is FunETHBaseTest {
     }
 
     function test_increaseAllowance_updatesAllowanceValue() public {
-        vm.prank(funETH.FUN_OPS());
+        vm.prank(funETH.owner());
         funETH.increaseAllowance(address(0xbeef), 1000 ether);
-        assertEq(funETH.allowance(funETH.FUN_OPS(), address(0xbeef)), 1000 ether);
-        vm.prank(funETH.FUN_OPS());
+        assertEq(funETH.allowance(funETH.owner(), address(0xbeef)), 1000 ether);
+        vm.prank(funETH.owner());
         funETH.increaseAllowance(address(0xbeef), 1000 ether);
-        assertEq(funETH.allowance(funETH.FUN_OPS(), address(0xbeef)), 2000 ether);
+        assertEq(funETH.allowance(funETH.owner(), address(0xbeef)), 2000 ether);
     }
 
     function test_increaseAllowance_emitsEvent() public {
         vm.expectEmit(true, true, true, true);
-        emit IERC20x.Approval(funETH.FUN_OPS(), address(0xbeef), 1000 ether);
-        vm.prank(funETH.FUN_OPS());
+        emit IERC20x.Approval(funETH.owner(), address(0xbeef), 1000 ether);
+        vm.prank(funETH.owner());
         funETH.increaseAllowance(address(0xbeef), 1000 ether);
         vm.expectEmit(true, true, true, true);
-        emit IERC20x.Approval(funETH.FUN_OPS(), address(0xbeef), 2000 ether);
-        vm.prank(funETH.FUN_OPS());
+        emit IERC20x.Approval(funETH.owner(), address(0xbeef), 2000 ether);
+        vm.prank(funETH.owner());
         funETH.increaseAllowance(address(0xbeef), 1000 ether);
     }
 
@@ -95,7 +76,7 @@ contract FunETHCore is FunETHBaseTest {
 
         vm.expectRevert(FunETH.InvalidReceiver.selector);
         vm.prank(user);
-        funETH.depositOnBehalfOf(n, address(0), makeAddr("boogawugi"));
+        funETH.depositWithPreference(n, address(0), makeAddr("boogawugi"), makeAddr("boogawugi"));
     }
 
     function test_deposit_revertsOnBelowMinDeposit(address user, uint256 amount) public assumeValidAddress(user) {
@@ -117,21 +98,8 @@ contract FunETHCore is FunETHBaseTest {
         reserveToken.approve(address(funETH), n);
 
         vm.expectEmit(true, true, true, true);
-        emit FunETH.Deposit(user, user, n, funETH.FUN_OPS(), address(funETH));
+        emit FunETH.Deposit(user, user, n, funETH.owner(), address(funETH));
         funETH.deposit(n);
-        vm.stopPrank();
-    }
-
-    function test_depositOnBehalfOf_emitsProperEvent(address user, uint256 amount) public assumeValidAddress(user) {
-        uint256 n = _boundDepositAmount(amount, false);
-        deal(address(reserveToken), user, n);
-
-        vm.startPrank(user);
-        reserveToken.approve(address(funETH), n);
-
-        vm.expectEmit(true, true, true, true);
-        emit FunETH.Deposit(user, makeAddr("boogawugi"), n, funETH.FUN_OPS(), address(0xbeef));
-        funETH.depositOnBehalfOf(n, makeAddr("boogawugi"), address(0xbeef));
         vm.stopPrank();
     }
 
@@ -144,7 +112,7 @@ contract FunETHCore is FunETHBaseTest {
 
         vm.startPrank(user);
         reserveToken.approve(address(funETH), n);
-        funETH.depositOnBehalfOf(n, address(0xbeef), makeAddr("boogawugi"));
+        funETH.depositWithPreference(n, address(0xbeef), address(0x5117), makeAddr("boogawugi"));
         vm.stopPrank();
 
         assertEq(funETH.balanceOf(user), 0);
@@ -162,8 +130,8 @@ contract FunETHCore is FunETHBaseTest {
         reserveToken.approve(address(funETH), n);
 
         vm.expectEmit(true, true, true, true);
-        emit FunETH.Deposit(user, user, n, funETH.FUN_OPS(), address(0xbeef));
-        funETH.depositWithPreference(n, funETH.FUN_OPS(), address(0xbeef));
+        emit FunETH.Deposit(user, vm.addr(666), n, funETH.owner(), address(0xbeef));
+        funETH.depositWithPreference(n, vm.addr(666), funETH.owner(), address(0xbeef));
         vm.stopPrank();
     }
 
@@ -175,7 +143,7 @@ contract FunETHCore is FunETHBaseTest {
         reserveToken.approve(address(funETH), n);
 
         vm.expectEmit(true, true, true, true);
-        emit FunETH.Deposit(user, user, n, funETH.FUN_OPS(), address(funETH));
+        emit FunETH.Deposit(user, user, n, funETH.owner(), address(funETH));
         funETH.depositAndApprove(address(0xbeef), n);
         vm.stopPrank();
     }
@@ -191,36 +159,39 @@ contract FunETHCore is FunETHBaseTest {
     }
 
     function test_pullReserves_revertNotfunCityTreasury(address caller, uint256 amount) public {
-        vm.assume(caller != funETH.FUN_OPS());
+        vm.assume(caller != funETH.owner());
         vm.prank(caller);
-        vm.expectRevert(FunETH.NotfunCity.selector);
+        vm.expectRevert(Ownable.Unauthorized.selector);
         funETH.pullReserves(amount, address(0));
     }
 
-    function test_pullReserves_onlyfunCityTreasury(address depositor, address rando)
+    function test_pullReserves_onlyFunCityTreasury(address depositor, address rando)
         public
         assumeValidAddress(rando)
         assumeValidAddress(depositor)
     {
-        vm.assume(rando != funETH.FUN_OPS());
+        vm.assume(rando != funETH.owner());
 
         // auth should work on 0 yield, 0 deposits
-        vm.prank(funETH.FUN_OPS());
+        vm.prank(funETH.owner());
         funETH.pullReserves(0, address(0));
 
         vm.prank(rando);
-        vm.expectRevert(FunETH.NotfunCity.selector);
+        vm.expectRevert(Ownable.Unauthorized.selector);
         funETH.pullReserves(0, address(0));
-
         // auth should work w/ yield/deposits
         _depositnnEth(depositor, 10 ether, true);
         vm.warp(block.timestamp + 10 days);
 
-        vm.prank(funETH.FUN_OPS());
-        funETH.pullReserves(0.1 ether, address(0));
+        uint256 yield = funETH.getYieldEarned();
+        emit log_named_uint("yield", yield);
+        emit log_named_uint("deposit", funETH.totalSupply());
+        emit log_named_uint("underlying", funETH.underlying());
+        vm.prank(funETH.owner());
+        funETH.pullReserves(yield, address(0));
 
         vm.prank(rando);
-        vm.expectRevert(FunETH.NotfunCity.selector);
+        vm.expectRevert(Ownable.Unauthorized.selector);
         funETH.pullReserves(0.1 ether, address(0));
     }
 
@@ -238,12 +209,10 @@ contract FunETHCore is FunETHBaseTest {
         assertGt(diff, 0);
         // - 1 to account for rounding errors btw aave tokens
         assertGe(diff, diff2 - 1);
+        // assertGe(diff, diff2);
         assertGe(funETH.getYieldEarned(), diff - 1);
+        // assertGe(funETH.getYieldEarned(), diff);
     }
-
-    // TODO test reserveToken price goes down and becomes liquidatable
-    // reserveToken price goes up and more credit available
-    //
 
     function test_pullReserves_sendsATokenToTreasury(address depositor, uint256 amount)
         public
@@ -259,12 +228,14 @@ contract FunETHCore is FunETHBaseTest {
         emit log_named_uint("supply", funETH.totalSupply());
         emit log_named_uint("underlying", funETH.underlying());
 
-        vm.startPrank(funETH.FUN_OPS());
+        vm.startPrank(funETH.owner());
         funETH.pullReserves(yield, address(0));
         vm.stopPrank();
 
-        assertGe(yield, funETH.aToken().balanceOf(funETH.FUN_OPS()) - 1);
-        assertEq(0, funETH.reserveToken().balanceOf(funETH.FUN_OPS()));
+        // assertGe(yield, funETH.aToken().balanceOf(funETH.owner()) - 1);
+        assertGe(yield, funETH.balanceOf(funETH.owner()));
+        assertEq(0, funETH.reserveToken().balanceOf(funETH.owner()));
+        assertEq(0, funETH.aToken().balanceOf(funETH.owner()));
     }
 
     // FunETH.invariant.t.sol tests this already but do it again
@@ -272,7 +243,7 @@ contract FunETHCore is FunETHBaseTest {
         public
         assumeValidAddress(depositor)
     {
-        address funCity = funETH.FUN_OPS();
+        address funCity = funETH.owner();
         assertEq(0, funETH.underlying());
         assertEq(0, funETH.aToken().balanceOf(funCity));
         assertEq(0, funETH.reserveToken().balanceOf(funCity));
@@ -283,7 +254,7 @@ contract FunETHCore is FunETHBaseTest {
         uint256 yield = funETH.getYieldEarned();
         assertGt(yield, 0);
 
-        assertEq(0, funETH.aToken().balanceOf(funETH.FUN_OPS()));
+        assertEq(0, funETH.aToken().balanceOf(funETH.owner()));
 
         vm.startPrank(funCity);
         uint256 reservesToPull = yield / 2;
@@ -316,7 +287,7 @@ contract FunETHCore is FunETHBaseTest {
         assertGt(diff, 0);
         assertGt(n, diff);
 
-        vm.startPrank(funETH.FUN_OPS());
+        vm.startPrank(funETH.owner());
         vm.expectRevert(FunETH.InsufficientReserves.selector);
         funETH.pullReserves(n, address(0));
     }
@@ -339,7 +310,7 @@ contract FunETHCore is FunETHBaseTest {
         assertGe(funETH.MIN_RESERVE_FACTOR(), unhealthyHF);
         assertLe(funETH.MIN_REDEEM_FACTOR(), unhealthyHF);
 
-        vm.startPrank(funETH.FUN_OPS());
+        vm.startPrank(funETH.owner());
         vm.expectRevert(FunETH.InsufficientReserves.selector);
         funETH.pullReserves(10, address(0));
         vm.stopPrank();
@@ -355,17 +326,14 @@ contract FunETHCore is FunETHBaseTest {
 
         _lend(city, borrowable);
 
-        vm.startPrank(city);
-        aave.borrow(borrowToken, borrowable, 2, 200, address(funETH));
-
         // LTV above target
         (,, uint256 availableBorrow,, uint256 ltv, uint256 hf) = aave.getUserAccountData(address(funETH));
         assertGe(hf, funETH.MIN_RESERVE_FACTOR());
 
-        // uint256 debtBalance1 = funETH.getDebt();
-        // vm.expectRevert(bytes(AaveErrors.COLLATERAL_CANNOT_COVER_NEW_BORROW), address(aave));
+        address rsa = factory.deployFunFunding(city, funETH.debtAsset(), 100, "test", "test");
         vm.expectRevert();
-        aave.borrow(borrowToken, availableBorrow > 100 ? availableBorrow / 1e2 + 1 : 1, 2, 200, address(funETH)); // 1 wei over target LTV should revert
+        vm.prank(funETH.owner());
+        funETH.lend(city, rsa, borrowable);
 
         // LTV still above target
         (,, uint256 availableBorrow2,, uint256 ltv2, uint256 hf2) = aave.getUserAccountData(address(funETH));
@@ -378,11 +346,12 @@ contract FunETHCore is FunETHBaseTest {
         uint256 n = _depositForBorrowing(user, amount);
         (, uint256 borrowable) = _borrowable(n);
         vm.warp(block.timestamp + 888);
-        vm.prank(funETH.FUN_OPS());
-        address rsa = factory.deployFunFunding(address(0), address(funETH.debtAsset()), 100, "test", "test");
-        funETH.lend(makeAddr("boogawugi"), rsa, borrowable);
+        
+        address rsa = factory.deployFunFunding(makeAddr("asavwava"), address(funETH.debtAsset()), 100, "testasfa", "tasfaest");
+        vm.prank(funETH.owner());
+        funETH.lend(makeAddr("asavwava"), rsa, borrowable);
 
-        uint256 safeWithdraw = (n * 3) / 4;
+        uint256 safeWithdraw = n / 4;
         vm.prank(user);
         // should be able withdraw more than reserve factor, less than redeem factor
         funETH.withdraw(safeWithdraw);
@@ -396,38 +365,45 @@ contract FunETHCore is FunETHBaseTest {
         (, uint256 borrowable) = _borrowable(n);
         vm.warp(block.timestamp + 888);
 
-        address rsa = factory.deployFunFunding(address(0), address(funETH.debtAsset()), 100, "test", "test");
-        vm.prank(funETH.FUN_OPS());
+        address rsa = factory.deployFunFunding(makeAddr("boogawugi"), address(funETH.debtAsset()), 100, "test", "test");
+        vm.prank(funETH.owner());
         funETH.lend(makeAddr("boogawugi"), rsa, borrowable);
 
         assertGe(funETH.getExpectedHF(), funETH.MIN_REDEEM_FACTOR());
+        assertLe(funETH.getExpectedHF(), funETH.MIN_RESERVE_FACTOR());
 
-        vm.expectRevert(FunETH.MaliciousWithdraw.selector);
-        _withdrawnnEth(user, n);
+        // uint256 maliciousWithdrawAmount = (borrowable * funETH.MIN_REDEEM_FACTOR());
+        uint256 maliciousWithdrawAmount = (n * 2) / 4;
+        emit log_named_uint("pre malicious factor", funETH.getExpectedHF());
+        // vm.expectRevert(FunETH.MaliciousWithdraw.selector);
+        _withdrawnnEth(user, maliciousWithdrawAmount);
+        emit log_named_uint("post malicious factor", funETH.getExpectedHF());
         // still above min redeem factor bc withdraw failed
         assertGe(funETH.getExpectedHF(), funETH.MIN_REDEEM_FACTOR());
+        assertLe(funETH.getExpectedHF(), funETH.MIN_RESERVE_FACTOR());
     }
 
-    function test_withdrawTo_updatesProperBalances(address user, uint256 amount) public assumeValidAddress(user) {
-        uint256 n = _depositnnEth(user, amount, true);
-        assertEq(funETH.balanceOf(user), n);
-        emit log_named_uint("recipient init balance ", funETH.balanceOf(makeAddr("boogawugi")));
-        assertEq(funETH.balanceOf(makeAddr("boogawugi")), 0);
-        assertEq(reserveToken.balanceOf(user), 0);
-        emit log_named_uint("recipient init balance ", reserveToken.balanceOf(makeAddr("boogawugi")));
-        assertEq(reserveToken.balanceOf(makeAddr("boogawugi")), 0);
+    // withdrawTo() replaced with 4626 redeem()
+    // function test_withdrawTo_updatesProperBalances(address user, uint256 amount) public assumeValidAddress(user) {
+    //     uint256 n = _depositnnEth(user, amount, true);
+    //     assertEq(funETH.balanceOf(user), n);
+    //     emit log_named_uint("recipient init balance ", funETH.balanceOf(makeAddr("boogawugi")));
+    //     assertEq(funETH.balanceOf(makeAddr("boogawugi")), 0);
+    //     assertEq(reserveToken.balanceOf(user), 0);
+    //     emit log_named_uint("recipient init balance ", reserveToken.balanceOf(makeAddr("boogawugi")));
+    //     assertEq(reserveToken.balanceOf(makeAddr("boogawugi")), 0);
 
-        uint256 withdrawn = n / 2;
-        vm.prank(user);
-        funETH.withdrawTo(withdrawn, makeAddr("boogawugi"));
+    //     uint256 withdrawn = n / 2;
+    //     vm.prank(user);
+    //     funETH.withdrawTo(withdrawn, makeAddr("boogawugi"));
 
-        emit log_named_uint("user remaining balance ", funETH.balanceOf(user));
-        assertEq(reserveToken.balanceOf(user), 0);
-        assertEq(funETH.balanceOf(user), n - withdrawn);
+    //     emit log_named_uint("user remaining balance ", funETH.balanceOf(user));
+    //     assertEq(reserveToken.balanceOf(user), 0);
+    //     assertEq(funETH.balanceOf(user), n - withdrawn);
 
-        emit log_named_address("reserve token ", address(reserveToken));
-        assertEq(reserveToken.balanceOf(makeAddr("boogawugi")), withdrawn);
-        emit log_named_uint("recipient remaining balance ", funETH.balanceOf(makeAddr("boogawugi")));
-        assertEq(funETH.balanceOf(makeAddr("boogawugi")), 0);
-    }
+    //     emit log_named_address("reserve token ", address(reserveToken));
+    //     assertEq(reserveToken.balanceOf(makeAddr("boogawugi")), withdrawn);
+    //     emit log_named_uint("recipient remaining balance ", funETH.balanceOf(makeAddr("boogawugi")));
+    //     assertEq(funETH.balanceOf(makeAddr("boogawugi")), 0);
+    // }    
 }

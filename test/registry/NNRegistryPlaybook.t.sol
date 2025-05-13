@@ -348,7 +348,7 @@ contract Handler is NNRegistryCoreTest {
 
     function netDeposits() external view returns (uint256) {
         return funUSDC.convertToDecimal(netUSDCDeposits(), funUSDC.decimals(), 8)
-            + funETH.convertToDecimal(netFunETHDeposits() * funETH.reserveAssetPrice(), funETH.decimals(), 8);
+            + funETH.convertToDecimal(netFunETHDeposits() * funETH.price(true), funETH.decimals(), 8);
     }
 
     function callSummary() external view {

@@ -1,6 +1,5 @@
 pragma solidity ^0.8.26;
 
-
 import {LibClone} from "solady/utils/LibClone.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {IFunETH, IFunFunding, IFunCityLandRegistry} from "../Interfaces.sol";
@@ -21,7 +20,7 @@ contract FunFactory is Ownable {
     address public funUSDC;
     uint16 public funLoanFee;
     uint16 public funCityClosingFee;
-    
+
     constructor(address _aaveMarket, address _weth) {
         aaveMarket = _aaveMarket;
         WETH = _weth;
@@ -36,25 +35,34 @@ contract FunFactory is Ownable {
         landRegistryImplementation = address(new FunCityLandRegistry());
     }
 
-    function deployFunToken(address reserveToken, address debtToken, string memory name, string memory symbol) public returns (address) {
+    function deployFunToken(address reserveToken, address debtToken, string memory name, string memory symbol)
+        public
+        returns (address)
+    {
         address clone = LibClone.cloneDeterministic(funTokenImplementation, keccak256(abi.encodePacked(name)));
         IFunETH(clone).initialize(reserveToken, aaveMarket, debtToken, name, symbol);
         return clone;
     }
 
-    function deployFunFunding(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol) public returns (address) {
+    function deployFunFunding(address borrower, address loanToken, uint16 apr, string memory name, string memory symbol)
+        public
+        returns (address)
+    {
         address clone = LibClone.cloneDeterministic(rsaImplementation, keccak256(abi.encodePacked(borrower, apr, name)));
         IFunFunding(clone).initialize(borrower, WETH, loanToken, apr, name, symbol);
         return clone;
     }
 
     function deployLandRegistry(address curator) public returns (address) {
-        address clone = LibClone.cloneDeterministic(landRegistryImplementation, keccak256(abi.encodePacked(block.timestamp)));
+        address clone =
+            LibClone.cloneDeterministic(landRegistryImplementation, keccak256(abi.encodePacked(block.timestamp)));
         IFunCityLandRegistry(clone).initialize(funETH, funUSDC, curator);
         return clone;
     }
 
-    /** admin functions */
+    /**
+     * admin functions
+     */
     function setDefaultFunTokens(address _funETH, address _funUSDC) public onlyOwner {
         funETH = _funETH;
         funUSDC = _funUSDC;

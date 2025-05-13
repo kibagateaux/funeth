@@ -31,12 +31,13 @@ contract NNRegistryCoreTest is FunETHBaseTest {
 
     function test_constructor_revertsOnInvalidFunTokens() public {
         // reset for init test
-        vm.expectRevert(); // silent revert on to address with no reserveToken()
-        (new FunCityLandRegistry()).initialize(address(0), address(funUSDC), curator);
+        FunCityLandRegistry reg = new FunCityLandRegistry();
 
         vm.expectRevert(); // silent revert on to address with no reserveToken()
-        (new FunCityLandRegistry()).initialize(address(funETH), address(0), curator);
+        reg.initialize(address(0), address(funUSDC), curator);
 
+        vm.expectRevert(); // silent revert on to address with no debtToken()
+        reg.initialize(address(funETH), address(0), curator);
     }
 
     function test_constructor_setsNNValuesProperly() public {
