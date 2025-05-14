@@ -6,6 +6,7 @@ import {MockToken} from "../helpers/MockToken.sol";
 import {FunFactory} from "../../src/utils/FunFactory.sol";
 import {FunFunding} from "../../src/utils/FunFunding.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {ERC20} from "solady/tokens/ERC20.sol";
 import {MockFeeGenerator} from "../helpers/MockFeeGenerator.sol";
 
 import {GPv2Order} from "../../src/lib/GPv2.sol";
@@ -49,7 +50,7 @@ contract FunFundingTest is Test {
 
     // Named vars for common inputs
     uint256 constant MAX_UINT = type(uint256).max;
-    uint256 constant MAX_REVENUE = type(uint256).max;
+    uint256 constant MAX_REVENUE = type(uint256).max / 100;
     uint256 constant MAX_TRADE_DEADLINE = 1 days;
 
     bytes4 internal constant ERC_1271_MAGIC_VALUE = 0x1626ba7e;
@@ -298,7 +299,7 @@ contract FunFundingTest is Test {
     }
 
     function test_redeem_mustRedeemLessThanClaimableRevenue(uint256 _revenue, uint256 _redeemed) public {
-        uint256 revenue = bound(_revenue, 100, MAX_UINT);
+        uint256 revenue = bound(_revenue, 100, MAX_UINT / rsa.rewardRate());
         uint256 redeemed = bound(_redeemed, 100, MAX_UINT / rsa.rewardRate());
 
         _depositRSA(depositor, rsa, redeemed);
@@ -498,10 +499,16 @@ contract FunFundingTest is Test {
     function test_repay_revertsBeforeInitiateTerm() public {
         _depositRSA(depositor, rsa, 0.1 ether);
         vm.expectRevert(FunFunding.InvalidStatus.selector);
-        _generateRevenue(creditToken, MAX_REVENUE); // repay() in generateRevenue()
+        rsa.repay();
+        
+        // fails if has tokens bc no debt yet
+        deal(address(creditToken), address(rsa), rsa.totalOwed());
+        vm.expectRevert(FunFunding.InvalidStatus.selector);
+        rsa.repay();
 
         _initRSA(rsa);
-        _generateRevenue(creditToken, MAX_REVENUE); // repay() in generateRevenue()
+        
+        rsa.repay();
     }
 
     function test_repay_acceptsDirectCreditTokenPayments() public {
@@ -553,12 +560,6 @@ contract FunFundingTest is Test {
         assertEq(creditToken.balanceOf(borrower), 0.1 ether);
     }
 
-    function test_repay_doesNotTransferTokensToDepositor() public {
-        // wrapper function for semantics
-        test_repay_storesPaymentInRSA();
-    }
-
-    /// @dev invariant
     function test_repay_mustIncreaseClaimableAmount() public {
         // ensure we do not send token to depositor either as a negative case
         assertEq(rsa.claimableAmount(), 0);
@@ -568,34 +569,37 @@ contract FunFundingTest is Test {
         assertEq(rsa.claimableAmount(), 0);
 
         _initRSA(rsa);
-        _generateRevenue(creditToken, MAX_REVENUE);
         assertEq(rsa.claimableAmount(), 0);
 
+        _generateRevenue(creditToken, MAX_REVENUE);
         uint256 claimable = MAX_REVENUE > amount ? amount : MAX_REVENUE;
 
         assertEq(creditToken.balanceOf(address(rsa)), MAX_REVENUE);
-        assertGe(rsa.claimableAmount(), amount); // btw amount and totalOwed()
-            // assertLe(rsa.claimableAmount(), rsa.totalOwed()); // btw amount and totalOwed()
-            // assertGe(0, claimable); // mustve increased something
+        assertGe(rsa.claimableAmount(), claimable); // btw amount and totalOwed()
     }
 
     /// @dev invariant
     function test_repay_increasesClaimableAmountByCurrentBalanceMinusExistingClaimable() public {
         uint256 amount = 0.1 ether;
-        _depositRSA(depositor, rsa, amount);
+        uint256 shares = _depositRSA(depositor, rsa, amount);
         _initRSA(rsa);
+        assertEq(creditToken.balanceOf(address(rsa)), 0); // all sent out in initTerm
 
+        emit log_named_uint("amount", amount);
         _generateRevenue(creditToken, amount / 2);
+        emit log_named_uint("creditToken.balanceOf(address(rsa)) 0 ", creditToken.balanceOf(address(rsa)));
         assertEq(creditToken.balanceOf(address(rsa)), amount / 2);
         assertEq(rsa.claimableAmount(), amount / 2);
 
-        _generateRevenue(creditToken, amount / 2);
+        _generateRevenue(creditToken, amount);
+        emit log_named_uint("creditToken.balanceOf(address(rsa)) 1 ", creditToken.balanceOf(address(rsa)));
         assertEq(creditToken.balanceOf(address(rsa)), amount);
         assertEq(rsa.claimableAmount(), amount); // updated claimable properly
 
-        _generateRevenue(creditToken, amount);
-        assertEq(creditToken.balanceOf(address(rsa)), amount + amount);
-        assertEq(rsa.claimableAmount(), amount); // once over doesnt go up
+        _generateRevenue(creditToken, amount * 2);
+        emit log_named_uint("creditToken.balanceOf(address(rsa)) 2", creditToken.balanceOf(address(rsa)));
+        assertEq(creditToken.balanceOf(address(rsa)), amount * 2);
+        assertEq(rsa.claimableAmount(), shares); // stops accumulating at totalOwed
             // TODO in test_repay_mustCapClaimableRepaymentsToTotalOwed()
     }
 
@@ -627,30 +631,31 @@ contract FunFundingTest is Test {
         }
     }
 
-    function test_repay_mustCapClaimableRepaymentsToTotalOwed(uint256 _amount, uint256 _revenue) public {
-        vm.assume(_revenue >= _amount);
+    function test_repay_mustCapClaimableRepaymentsToTotalOwed(uint256 _amount) public {
+        vm.assume(_amount < 100 ether);
         uint256 amount = _depositRSA(depositor, rsa, _amount);
         _initRSA(rsa);
-        assertEq(amount, rsa.totalOwed());
+        uint256 total = rsa.totalOwed();
+        assertGe(total, amount); // Ge for potential network fees added on 
         // first payment in full
-        _generateRevenue(creditToken, _revenue);
+        assertEq(uint8(rsa.status()), uint8(FunFunding.STATUS.ACTIVE));
+        vm.expectEmit(true, true, true, true);
+        // status auto change from ACTIVE -> REPAID when all debt gone
+        emit FunFunding.Repay(total);
+        _generateRevenue(creditToken, total);
         assertEq(amount, rsa.claimableAmount());
-        assertEq(0, rsa.totalOwed());
+        assertEq(rsa.claimableAmount(), total);
 
-        assertEq(creditToken.balanceOf(address(rsa)), _revenue);
         // double check we claimed more than owed for later math
 
-        // clear operator tokens so _assertSpigot in _generateRevenue passes on multiple invocations
-        // hoax(operator);
-        // rsa.claimOperatorTokens(address(creditToken));
+        deal(address(creditToken), address(rsa), total * 2);
+        vm.expectRevert(FunFunding.InvalidStatus.selector);
+        rsa.repay();
 
-        vm.expectEmit(true, true, true, true);
-        emit FunFunding.Repay(0);
-        _generateRevenue(creditToken, _revenue);
-
-        assertEq(0, rsa.totalOwed());
         // prove that claimable doesnt exceed owed w/ extra credit tokens
-        assertEq(_revenue * 2, creditToken.balanceOf(address(rsa)));
+        assertEq(rsa.claimableAmount(), total);
+        // yet still have extra tokens in contract
+        assertEq(total * 2, creditToken.balanceOf(address(rsa)));
         assertEq(amount, rsa.claimableAmount(), "claimable vs owed not valid");
     }
 
@@ -823,19 +828,46 @@ contract FunFundingTest is Test {
 
         // now borrower is in debt
         _depositRSA(depositor, rsa, 0.1 ether);
+        
+        vm.startPrank(borrower);
+        // no debt officially until initTerm(). just pooled deposits
+        assertEq(creditToken.balanceOf(borrower), 0);
+        vm.expectRevert(ERC20.InsufficientBalance.selector);
+        rsa.sweep(address(creditToken), borrower);
+        assertEq(creditToken.balanceOf(address(rsa)), 0.1 ether);
+        assertEq(creditToken.balanceOf(borrower), 0);
+        vm.stopPrank();
+
         _initRSA(rsa);
+        assertEq(creditToken.balanceOf(address(borrower)), 0.1 ether);
 
         deal(address(feeToken), address(rsa), 1000);
         uint256 preBalance2 = feeToken.balanceOf(address(rsa));
 
         vm.startPrank(borrower);
-        vm.expectRevert(FunFunding.CantSweepWhileInDebt.selector);
+        vm.expectRevert(FunFunding.InvalidStatus.selector);
         rsa.sweep(address(feeToken), borrower);
         vm.stopPrank();
 
+        // confirm failed and all tokens still there
         uint256 postBalance2 = feeToken.balanceOf(address(rsa));
         assertEq(postBalance2, 1000);
-        assertEq(preBalance2 - postBalance2, 0);
+        assertEq(preBalance2, postBalance2);
+
+        // repay loan and test sweep again
+        uint256 total = rsa.totalOwed();
+        _generateRevenue(creditToken, total);
+        vm.startPrank(borrower);
+        rsa.sweep(address(feeToken), borrower);
+        assertEq(feeToken.balanceOf(address(rsa)), 0);
+        assertEq(feeToken.balanceOf(address(borrower)), preBalance + preBalance2);
+
+        rsa.sweep(address(creditToken), borrower);
+        assertEq(creditToken.balanceOf(address(rsa)), total);
+        assertEq(rsa.claimableAmount(), total);
+        // only original money from loan in wallet, nothing swept
+        assertEq(creditToken.balanceOf(address(borrower)), 0.1 ether);
+        vm.stopPrank();
     }
 
     //     Testing Helpers & Automations

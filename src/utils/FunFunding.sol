@@ -1,6 +1,7 @@
 pragma solidity ^0.8.26;
 
 import {ERC20} from "solady/tokens/ERC20.sol";
+import {ERC4626} from "solady/tokens/ERC4626.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {GPv2Order} from "../lib/GPv2.sol";
 import {IFunETH, IERC20x, IFunFactory, IAaveMarket, ReserveData} from "../Interfaces.sol";
@@ -17,7 +18,9 @@ import {IFunETH, IERC20x, IFunFactory, IAaveMarket, ReserveData} from "../Interf
  * Borrower or Lender can trade any revenue token at any time to the token owed to lender using CowSwap Smart Orders
  * @dev - reference  https://github.com/charlesndalton/milkman/blob/main/contracts/Milkman.sol
  */
-contract FunFunding is ERC20, Ownable {
+ 
+ contract FunFunding is ERC20, Ownable {
+    // TODO inherit ERC4626 for easier calcs
     using GPv2Order for GPv2Order.Data;
 
     enum STATUS {
@@ -28,8 +31,6 @@ contract FunFunding is ERC20, Ownable {
         CANCELED
     }
 
-    // TODO add network fee as param/call from factory?
-    uint16 public NETWORK_FEE_BPS; // origination fee 0.33%
     uint16 internal constant BPS_COEFFICIENT = 10_000; // offset bps decimals
 
     bytes4 internal constant ERC_1271_MAGIC_VALUE = 0x1626ba7e;
@@ -44,6 +45,9 @@ contract FunFunding is ERC20, Ownable {
         0xc078f884a2676e1345748b1feace7b0abee5d00ecadb6e574dcdd109a63e8943;
 
     IERC20x internal WETH;
+    // TODO add network fee as param/call from factory?
+    uint16 public NETWORK_FEE_BPS; // origination fee 0.33%
+    uint8 _decimals;
     STATUS public status;
     ///@notice  how many tokens minted per deposit to make redemptions 1:1 per RSA token. BPS decimals. e.g. 10_600 = 6% apr
     // TODO make a variable version for partial redeems not first come first serve.
@@ -137,6 +141,7 @@ contract FunFunding is ERC20, Ownable {
         _name = string.concat("Revenue Share: ", __name);
         _symbol = string.concat("RSA-", __symbol);
         WETH = IERC20x(_weth);
+        _decimals = IERC20x(_creditToken).decimals();
 
         // RSA financial terms
         status = STATUS.INIT;
@@ -156,6 +161,10 @@ contract FunFunding is ERC20, Ownable {
         return _symbol;
     }
 
+    function decimals() public view virtual override returns (uint8) {
+        return _decimals;
+    }
+
     /**
      * @notice Returns the amount of assets yet to be redeemed from RSA
      * @dev ERC4626
@@ -165,25 +174,39 @@ contract FunFunding is ERC20, Ownable {
         return totalOwed + claimableAmount;
     }
 
+
+    // TODO add mint() + withdraw() for 4626 compliance
+
+
+    function mint(uint256 amount, address _receiver) external returns (uint256) {
+        uint256 assets = (amount * BPS_COEFFICIENT) / rewardRate;
+        _deposit(amount, assets, _receiver, _receiver);
+        return assets;
+    }
+
     /**
-     * @notice Lets lenders deposit Borrower's requested loan amount into RSA and receive back redeemable shares of revenue stream
+     * @notice __
      * @dev callable by anyone if offer not accepted yet
      * @return redeemable shares minted. more than amount based on apr for 1:1 redemption
      */
-    function deposit(uint256 amount, address _receiver) public returns (uint256 redeemable) {
+    function deposit(uint256 amount, address _receiver) public returns (uint256) {
+        uint256 shares = (amount * rewardRate) / BPS_COEFFICIENT;
+        _deposit(shares, amount, _receiver, _receiver);
+        return shares;
+    }
+
+    function _deposit(uint256 shares, uint256 assets, address to, address receiver) internal {
         if (status != STATUS.INIT) {
             revert InvalidStatus();
         }
 
         // issue RSA token to lender to redeem later. Mint > deposit to account for yield
         // TODO i like 1:1 token ratio better than redeem rate. Update FunETH.lend() + repay() logic as necessary
-        redeemable = (amount * rewardRate) / BPS_COEFFICIENT;
-        _mint(_receiver, redeemable);
+        _mint(receiver, shares);
 
-        // extend credit to borrower
-        ERC20(asset).transferFrom(msg.sender, address(this), amount);
+        ERC20(asset).transferFrom(msg.sender, address(this), assets);
 
-        emit Deposit(msg.sender, _receiver, amount, redeemable);
+        emit Deposit(msg.sender, receiver, assets, shares);
     }
 
     /**
@@ -194,38 +217,54 @@ contract FunFunding is ERC20, Ownable {
      * @dev results vary based on status of round.
      * @return redeemable - underlying assets returned for shares
      */
-    function redeem(uint256 _amount, address _to, address _owner) public returns (uint256 redeemable) {
+    function redeem(uint256 _amount, address _to, address _owner) public returns (uint256) {
+        uint256 assets = _amount;
         if (status == STATUS.INIT || status == STATUS.CANCELED) {
-            // if deal never launches, redeem for original deposit values not reward rate.
-            // Better UX to always have 1:1 redeem rate for token value inflating for yield instead of a variable redeem rate on every loan
-            redeemable = (_amount * BPS_COEFFICIENT) / rewardRate;
+            // offset increase in shares for rewardRate if cancelled
+            assets = (_amount * BPS_COEFFICIENT) / rewardRate;
         }
+        _withdraw(_amount, assets, _to, _owner);
+        return assets;
+      
+    }
 
-        if (status == STATUS.ACTIVE || status == STATUS.REPAID) {
+    function withdraw(uint256 _amount, address _to, address _owner) external returns (uint256) {
+        uint256 shares = _amount;
+        if (status == STATUS.INIT || status == STATUS.CANCELED) {
+            shares = (_amount * BPS_COEFFICIENT) / rewardRate;
+        }
+        _withdraw(shares, _amount, _to, _owner);
+        return shares;
+    }
+
+    function _withdraw(uint256 shares, uint256 assets, address _to, address _owner) internal returns (uint256 redeemable) {
+
+          if (status == STATUS.ACTIVE || status == STATUS.REPAID) {
             // _burn only checks their RSA token balance so asset.transfer may move tokens
             // we havent properly accounted for as revenue yet.
             // If asset.balanceOf(this) > _amount but redeem() fails then call
             // repay() to account for the missing tokens and redeem() again.
-            if (_amount > claimableAmount) {
+            if (assets > claimableAmount) {
                 revert ExceedClaimableTokens(claimableAmount);
             }
 
-            redeemable = _amount;
-            claimableAmount -= redeemable;
+            claimableAmount -= assets;
         }
 
         // @NOTE use _amount here as initial shares.
         // check that caller has approval on _owner tokens
         if (msg.sender != _owner) {
-            _spendAllowance(_owner, msg.sender, _amount);
+            _spendAllowance(_owner, msg.sender, shares);
         }
-        _burn(_owner, _amount);
-
+        _burn(_owner, shares);
         // if RSA not actived then redeem at 1:1 ratio. else redeem at rate of return
-        ERC20(asset).transfer(_to, redeemable);
+        ERC20(asset).transfer(_to, assets);
 
-        emit Withdraw(msg.sender, _to, _owner, redeemable, _amount);
+
+        emit Withdraw(msg.sender, _to, _owner, assets, shares);
     }
+
+
 
     /**
      * @notice Accounts for all credit tokens bought and updates debt and deposit balances
@@ -240,7 +279,7 @@ contract FunFunding is ERC20, Ownable {
 
         if (newPayments >= maxPayable) {
             // if fees > debt then repay all debt
-            claimableAmount = maxPayable;
+            claimableAmount += maxPayable;
             totalOwed = 0;
             _completeTerm();
             emit Repay(maxPayable);
@@ -413,7 +452,11 @@ contract FunFunding is ERC20, Ownable {
                 // keep enough underlying for redemptions
                 ? claimableAmount
                 // if INIT/CANCELED prevent user deposits from being swept
-                : (totalSupply() * BPS_COEFFICIENT) / rewardRate;
+                : totalSupply(); // TODO if updating rewardRate scheme then update this
+            
+            if (withholdings > balance) {
+                revert InsufficientBalance();
+            }
             ERC20(_token).transfer(_to, balance - withholdings);
         } else {
             ERC20(_token).transfer(_to, balance);

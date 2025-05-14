@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {FunETH} from "../../src/FunETH.sol";
 import {IERC20x, IAaveMarket, IFunETH} from "../../src/Interfaces.sol";
 import {FunFactory} from "../../src/utils/FunFactory.sol";
+import {FunFunding} from "../../src/utils/FunFunding.sol";
 
 contract FunETHBaseTest is Test {
     FunETH public funETH;
@@ -112,7 +113,7 @@ contract FunETHBaseTest is Test {
         return _depositnnEth(user, deposited);
     }
 
-    function _lend(address city, uint256 amount) internal {
+    function _lend(address city, uint256 amount) internal returns (FunFunding) {
         vm.assume(city != address(0)); // prevent aave error sending to 0x0
 
         // when we deposit -> withdraw immediately we have 1 wei less balance than we deposit
@@ -122,6 +123,8 @@ contract FunETHBaseTest is Test {
         address rsa = factory.deployFunFunding(city, funETH.debtAsset(), 100, "test", "test");
         vm.prank(funETH.owner());
         funETH.lend(city, rsa, amount);
+
+        return FunFunding(rsa);
     }
 
     function _withdrawnnEth(address user, uint256 amount) internal {
@@ -138,14 +141,8 @@ contract FunETHBaseTest is Test {
      *     NOT debtToken decimals so must convert for calculations on lend/borrow
      */
     function _borrowable(uint256 nnethSupply) internal returns (uint256 aaveTotalCredit, uint256 nnEthCreditLimit) {
-        (,,,, uint256 ltvConfig,) = aave.getUserAccountData(address(funETH));
+        (,,aaveTotalCredit,, ,) = aave.getUserAccountData(address(funETH));
 
-        // Normal market doesnt return as it should so use AddressProvider to fetch oracle.
-        // (, bytes memory data) = IAaveMarket(0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D).getPriceOracle().call(abi.encodeWithSignature("getAssetPrice(address)", reserveToken));
-        // uint256 price;
-        // assembly {
-        //     price := mload(add(data, 32))
-        // }
         uint256 reservePrice =
             IAaveMarket(aave.ADDRESSES_PROVIDER()).getPriceOracle().getAssetPrice(address(reserveToken));
         uint256 debtPrice =
@@ -154,20 +151,10 @@ contract FunETHBaseTest is Test {
         emit log_named_uint("reserveToken reservePrice (8 dec)", reservePrice);
         emit log_named_uint("debtToken reservePrice (8 dec)", debtPrice);
 
-        // aaveTotalCredit = (nnethSupply * ltvConfig * reservePrice)
-        //     / 1e4 // ltv bps offset
-        //     / 1e8; // reservePrice decimals
-
-        // 8 = some aave internal decimal thing since we already offset price decimals
-        // total credit in usd 8 decimals
-        // aaveTotalCredit = funETH.decimals() > 8 ?
-        // //     // offset nnethSupply decimals to normalize to 8 dec usd price
-        //     aaveTotalCredit / (10**(funETH.decimals() - 8)) :
-        //     aaveTotalCredit * (10**(8-funETH.decimals()));
-
-        // 1e4  ltv bps offset + 1e8 reservePrice decimals
-        aaveTotalCredit =
-            funETH.convertToDecimal(nnethSupply * ltvConfig * reservePrice, reserveToken.decimals() + 12, 8);
+        // 1e4 ltv bps offset + 1e8 reservePrice decimals
+        // set to 1e8 for aave protocol's usd total
+        // aaveTotalCredit =
+        //     funETH.convertToDecimal(nnethSupply * ltvConfig * reservePrice, reserveToken.decimals() + 12, 8);
 
         emit log_named_uint("total cred init (8 dec)", aaveTotalCredit);
         // emit log_named_uint("total cred new (8 dec)", aaveTotalCredit2);
@@ -181,20 +168,20 @@ contract FunETHBaseTest is Test {
         //      debtToken.decimals()
         // );
 
+        emit log_named_uint("total cred init (aaveTotalCredit)", aaveTotalCredit);
+        // if(aaveTotalCredit < 1e8) return (aaveTotalCredit, 0);
+        
         nnEthCreditLimit = (
             funETH.convertToDecimal(
                 aaveTotalCredit,
-                0, // upscale from final decimal amount (8 dec prices cancel out) to get more precise answer
+                0, // upscale to final decimal amount first to get more precise answer
                 debtToken.decimals()
             ) / debtPrice / funETH.MIN_RESERVE_FACTOR()
-        ) - 1;
-
+        ) - 1 ; // offest 1 extra to ensure we dont go over reserve factor
         emit log_named_uint("total cred init (token dec)", nnEthCreditLimit);
-        // emit log_named_uint("total cred new (8 dec)", nnEthCreditLimit2);
-        // emit log_named_uint("total cred new2 (8 dec)", nnEthCreditLimit3);
 
         // 41_666_667 min ETH deposited to borrow 1 USDC of credit
-        // 100 = funETHCreditLimit in Aave 8 decimals = 1 USDC in 6 decimals
+        // 100 = funETHCreditLimit in Aave 8 decimals / 1 USDC in 6 decimals
         // (100 * 1e22) / ltvConfig * price * funETH.MIN_RESERVE_FACTOR() = (nnethSupply) ;
     }
 }

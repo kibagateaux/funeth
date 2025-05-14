@@ -330,7 +330,7 @@ contract FunETHCore is FunETHBaseTest {
         (,, uint256 availableBorrow,, uint256 ltv, uint256 hf) = aave.getUserAccountData(address(funETH));
         assertGe(hf, funETH.MIN_RESERVE_FACTOR());
 
-        address rsa = factory.deployFunFunding(city, funETH.debtAsset(), 100, "test", "test");
+        address rsa = factory.deployFunFunding(city, funETH.debtAsset(), 100, "teawfafst", "tegaevaawfwst");
         vm.expectRevert();
         vm.prank(funETH.owner());
         funETH.lend(city, rsa, borrowable);
@@ -340,6 +340,86 @@ contract FunETHCore is FunETHBaseTest {
         assertGe(funETH.convertToDecimal(hf2, 18, 2), funETH.MIN_RESERVE_FACTOR());
         // assertEq(funETH.getDebt(), debtBalance1);
         vm.stopPrank();
+    }
+
+    function test_lend_increasesCreditOnEachCall(uint256 deposited) public {
+        deposited = _depositnnEth(makeAddr("jknsafioui"), deposited, true);
+        (, uint256 borrowable) = _borrowable(deposited);
+        vm.warp(block.timestamp + 888);
+        
+        address city = makeAddr("boogawugi");
+        IERC20x funfund = IERC20x(factory.deployFunFunding(city, address(funETH.debtAsset()), 1000, "test", "test"));
+        uint256 shares = borrowable * 11_000 / 10_000;
+        
+        vm.prank(funETH.owner());
+        funETH.lend(city, address(funfund), borrowable / 2);
+        assertEq(funfund.balanceOf(address(funETH)), shares / 2);
+        funETH.lend(city, address(funfund), borrowable / 2);
+        assertEq(funfund.balanceOf(address(funETH)), shares);
+    }
+    function test_lend_worksWithAny4626Vault(uint256 deposited) public {
+        deposited = _depositnnEth(makeAddr("jknsafioui"), deposited, true);
+        (, uint256 borrowable) = _borrowable(deposited);
+        vm.warp(block.timestamp + 888);
+
+        address vault4626;
+        if(borrowToken == address(WETH))
+            // moonwell morpho WETH base
+            vault4626 = address(0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1);
+        if(borrowToken == address(USDC))
+            // moonwell morpho USDC base
+            vault4626 = address(0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca);
+
+        vm.prank(funETH.owner());
+        address city = makeAddr("boogawugi");
+        funETH.lend(city, vault4626, borrowable);
+        assertGe(IERC20x(vault4626).balanceOf(address(funETH)), 0);
+    }
+
+    function test_repay_worksWithAny4626Vault(uint256 deposited, uint256 redeemed) public {
+        vm.assume(redeemed > 0);
+        // 8 decimals for asset price + 2 decimal for reserve factor (prevent over/underflows in _borrowable)  
+        vm.assume(redeemed < type(uint256).max / 1e10);
+        deposited = _depositnnEth(makeAddr("jknsafioui"), deposited, true);
+        (, uint256 borrowable) = _borrowable(deposited);
+        vm.assume(borrowable >= redeemed);
+        vm.warp(block.timestamp + 888);
+
+        address vault4626;
+        if(borrowToken == address(WETH))
+            // moonwell morpho WETH base
+            vault4626 = address(0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1);
+        if(borrowToken == address(USDC))
+            // moonwell morpho USDC base
+            vault4626 = address(0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca);
+
+        (,uint256 debtBase,,,,) = aave.getUserAccountData(address(funETH));
+        assertEq(debtBase, 0);
+        vm.prank(funETH.owner());
+        address city = makeAddr("boogawugi");
+        funETH.lend(city, vault4626, borrowable);
+        uint256 shares = IERC20x(vault4626).balanceOf(address(funETH));
+        (,uint256 debtBase1,,,,) = aave.getUserAccountData(address(funETH));
+
+        vm.expectEmit(true, true, true, true);
+        // deposit/redeem in shares so calculate underlying redeemed from deposited amount
+        uint256 redeemedShares = (redeemed * shares) / borrowable; // TODO vault.previewWithdraw()
+        emit FunETH.LoanRepaid(city, vault4626, redeemed);
+        funETH.repay(city, redeemed);
+
+        (,uint256 debtBase2,,,,) = aave.getUserAccountData(address(funETH));
+
+        if(borrowable == redeemed) {    
+            assertEq(debtBase2, 0); 
+        } else {
+            assertLe(debtBase2, debtBase1);
+        }
+        
+        assertLe(
+            IERC20x(vault4626).balanceOf(address(funETH)),
+            shares - redeemedShares + 1 // +1 to offset for rounding errors
+        );
+
     }
 
     function test_withdraw_redeemBelowReserveFactor(address user, uint256 amount) public assumeValidAddress(user) {

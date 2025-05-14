@@ -42,6 +42,7 @@ interface IFunETH {
 
     // Treasurer functions
     function lend(address mate, address rsa, uint256 dubloons) external;
+    function repay(address city, uint256 shares) external;
     function pullReserves(uint256 dubloons, address asset) external;
 
     // WETH functionality
@@ -80,8 +81,11 @@ interface IFunFunding is IERC20 {
         string memory _sym
     ) external;
 
-    function deposit(uint256 amount, address _receiver) external returns (uint256);
+    function mint(uint256 amount, address _receiver) external returns (uint256);
     function redeem(uint256 _amount, address _to, address _owner) external returns (uint256);
+
+    function deposit(uint256 amount, address _receiver) external returns (uint256);
+    function withdraw(uint256 _amount, address _to, address _owner) external returns (uint256);
 
     function initiateTerm() external;
     function cancel() external;

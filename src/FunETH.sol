@@ -4,6 +4,8 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 import {IFunETH, IERC20x, IAaveMarket, ReserveData, IFunFactory, IFunFunding} from "./Interfaces.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
+// TODO make ERC4626. add reindexShares() that adds getYieldEarned() to underlying share value.
+
 contract FunETH is IFunETH, ERC20, Ownable {
     // from solady/ERC20 for increaseAllowance (important for LandRegistry security)
     uint256 private constant _ALLOWANCE_SLOT_SEED = 0x7f5e9f20;
@@ -138,6 +140,9 @@ contract FunETH is IFunETH, ERC20, Ownable {
             // = 1 if decimals are same value aka no change
             reserveVsATokenDecimalOffset = 10 ** (aTokenDecimals - reserveDecimals);
         }
+
+        // aave automatically enables non-isolated assets (aka majors) on initial supply
+        
     }
 
     /// @dev WETH compliant interface
@@ -209,14 +214,13 @@ contract FunETH is IFunETH, ERC20, Ownable {
      * @dev generalized implementation to allow different fun tokens/ configs without lots of params needed
      */
     function pullReserves(uint256 dubloons, address debtAssetFunToken) public onlyOwner {
-
         if (debtAssetFunToken == address(0)) {
             // mint excess yield as funToken to treasury
             _mint(FUN_OPS, dubloons); // reverts on assertFinHealth if > underlying() automatically
             emit PullReserves(msg.sender, address(reserveToken), dubloons);
         } else {
             // If we want to directly swap with another fun token
-            // aDebtAssert (>funReserve) -> debtAsset (>funReserve) -> funDebtAsset (>funOps)
+            // aDebtAsset (>funReserve) -> debtAsset (>funReserve) -> funDebtAsset (>funOps)
             aaveMarket.withdraw(debtAsset, dubloons, address(this));
             IERC20x(debtAsset).approve(debtAssetFunToken, dubloons);
             IFunFunding(debtAssetFunToken).deposit(dubloons, FUN_OPS);
@@ -237,9 +241,21 @@ contract FunETH is IFunETH, ERC20, Ownable {
      *      Can enable debtAsset to be used as collateral if excess after repaying debt.
      * @dev Must be called with `reserveToken` before lend() can work
      */
-    function refresh(address _reserveToken) public {
-        IERC20x(_reserveToken).approve(address(aaveMarket), type(uint256).max);
-        aaveMarket.setUserUseReserveAsCollateral(_reserveToken, true);
+    function refresh(bool isReserveToken) public {
+        if (isReserveToken) {
+            reserveToken.approve(address(aaveMarket), type(uint256).max);
+        } else {
+            IERC20x(debtAsset).approve(address(aaveMarket), type(uint256).max);
+            ReserveData memory pool = aaveMarket.getReserveData(debtAsset);
+        }
+    }
+
+    function reindexShares() public {
+        uint256 yieldEarned = getYieldEarned();
+        uint256 totalSupply = totalSupply();
+        uint256 newSharePrice = (underlying() + yieldEarned) / totalSupply;
+        // TODO add scaled 
+        // _reindexShares(newSharePrice);
     }
 
     /**
@@ -251,32 +267,33 @@ contract FunETH is IFunETH, ERC20, Ownable {
      * @param dubloons - Should be Aave market denominated. Usually USD to 10 decimals
      */
     function lend(address city, address fun_dingo, uint256 dubloons) public onlyOwner {
-        if (cities[city].fun_dingo != address(0)) revert CityAlreadyLent();
+        // TODO remove city struct? more brittle code and doesnt serve a purpose except 
+        // ensuring 1:1 loan per city which can be gamed anyway by using a different ctiy address
 
         aaveMarket.borrow(debtAsset, dubloons, AAVE_DEBT_INTEREST_MODE, 200, address(this));
-        
         IERC20x(debtAsset).approve(fun_dingo, dubloons);
-        uint256 newShares = IFunFunding(fun_dingo).deposit(dubloons, address(this));
 
         cities[city] = City({
             fun_dingo: fun_dingo,
             //  allow doing multiple deposits to same fun_dingo
-            owed: cities[city].owed + newShares
+            owed: cities[city].owed + IFunFunding(fun_dingo).deposit(dubloons, address(this))
         });
-
         _assertFinancialHealth();
 
         emit Lend(msg.sender, address(debtAsset), city, dubloons, fun_dingo);
     }
 
     function repay(address city, uint256 dubloons) public {
+        // TODO no problem letting anyone call for loans bc alwauys profit
+        // but if supporting any 4626 then need to gatekeep to prevent griefing by making us pull at a loss, taking withdraw fees immeditaely, etc.
         City memory creditInfo = cities[city];
 
+        // TODO decide if tracking in shares vs assets per vault. assets is easier for aave integration
         if (creditInfo.fun_dingo == address(0)) revert CityNotLent();
-        if (dubloons > creditInfo.owed) revert InvalidLoanClaim();
+        // if (dubloons > creditInfo.owed) revert InvalidLoanClaim();
 
         // Even if status == INIT/CANCELED we get back total expected tokens with redeem()
-        try IFunFunding(creditInfo.fun_dingo).redeem(dubloons, address(this), address(this)) {
+        try IFunFunding(creditInfo.fun_dingo).withdraw(dubloons, address(this), address(this)) returns (uint256 assets) {
             // TODO should save rsa rate in cities? Easier to calculate non-funfunding here while maintaining assurances
             // making lend/repay more flexible for higher yield strategies is pretty good.
 
