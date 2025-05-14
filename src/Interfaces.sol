@@ -34,8 +34,8 @@ interface IFunETH {
     ) external;
 
     // basic getters
+    function asset() external view returns (address);
     function decimals() external view returns (uint8);
-    function reserveToken() external returns (IERC20x);
     function aaveMarket() external returns (IAaveMarket);
     function aToken() external returns (IERC20x);
     function debtToken() external returns (IERC20x);
@@ -46,10 +46,10 @@ interface IFunETH {
     function pullReserves(uint256 dubloons, address asset) external;
 
     // WETH functionality
-    function deposit(uint256 dubloons) external;
-    function depositAndApprove(address spender, uint256 dubloons) external;
-    function depositWithPreference(uint256 dubloons, address to, address city, address referrer) external;
-    function withdraw(uint256 dubloons) external;
+    function deposit(uint256 dubloons) external returns(uint256);
+    function depositAndApprove(address spender, uint256 dubloons) external returns(uint256);
+    function depositWithPreference(uint256 dubloons, address to, address city, address referrer) external returns(uint256);
+    function withdraw(uint256 dubloons) external returns(uint256);
     function increaseAllowance(address spender, uint256 addedValue) external returns (bool);
 
     // aave integrations

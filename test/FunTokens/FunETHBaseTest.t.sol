@@ -88,7 +88,7 @@ contract FunETHBaseTest is Test {
         deposited = _boundDepositAmount(amount, false);
 
         vm.startPrank(user);
-        funETH.reserveToken().approve(address(funETH), deposited);
+        IERC20x(funETH.asset()).approve(address(funETH), deposited);
         funETH.deposit(deposited);
         vm.stopPrank();
     }
@@ -98,10 +98,10 @@ contract FunETHBaseTest is Test {
         vm.assume(user != address(0));
         deposited = _boundDepositAmount(amount, true);
 
-        deal(address(funETH.reserveToken()), user, deposited);
+        deal(address(funETH.asset()), user, deposited);
 
         vm.startPrank(user);
-        funETH.reserveToken().approve(address(funETH), deposited);
+        IERC20x(funETH.asset()).approve(address(funETH), deposited);
         funETH.deposit(deposited);
         vm.stopPrank();
     }
@@ -109,20 +109,20 @@ contract FunETHBaseTest is Test {
     function _depositnnEth(address user, uint256 amount, bool mint) internal returns (uint256 deposited) {
         vm.assume(user != address(0));
         deposited = _boundDepositAmount(amount, false);
-        if (mint) deal(address(funETH.reserveToken()), user, deposited);
+        if (mint) deal(address(funETH.asset()), user, deposited);
         return _depositnnEth(user, deposited);
     }
 
-    function _lend(address city, uint256 amount) internal returns (FunFunding) {
-        vm.assume(city != address(0)); // prevent aave error sending to 0x0
+    function _lend(address vault, uint256 amount) internal returns (FunFunding) {
+        vm.assume(vault != address(0)); // prevent aave error sending to 0x0
 
         // when we deposit -> withdraw immediately we have 1 wei less balance than we deposit
         // probs attack prevention method on aave protocol so move 1 block ahead to increase balance from interest
         vm.warp(block.timestamp + 1 weeks);
 
-        address rsa = factory.deployFunFunding(city, funETH.debtAsset(), 100, "test", "test");
+        address rsa = factory.deployFunFunding(vault, funETH.debtAsset(), 100, "test", "test");
         vm.prank(funETH.owner());
-        funETH.lend(city, rsa, amount);
+        funETH.lend(vault, rsa, amount);
 
         return FunFunding(rsa);
     }

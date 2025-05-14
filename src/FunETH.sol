@@ -1,12 +1,12 @@
 pragma solidity ^0.8.26;
 
-import {ERC20} from "solady/tokens/ERC20.sol";
+import {ERC4626} from "solady/tokens/ERC4626.sol";
 import {IFunETH, IERC20x, IAaveMarket, ReserveData, IFunFactory, IFunFunding} from "./Interfaces.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 // TODO make ERC4626. add reindexShares() that adds getYieldEarned() to underlying share value.
 
-contract FunETH is IFunETH, ERC20, Ownable {
+contract FunETH is IFunETH, ERC4626, Ownable {
     // from solady/ERC20 for increaseAllowance (important for LandRegistry security)
     uint256 private constant _ALLOWANCE_SLOT_SEED = 0x7f5e9f20;
     /// @dev `keccak256(bytes("Approval(address,address,uint256)"))`.
@@ -38,7 +38,7 @@ contract FunETH is IFunETH, ERC20, Ownable {
     uint256 public reserveVsATokenDecimalOffset;
 
     /// @notice Token to accept for home payments in funCity
-    IERC20x public reserveToken;
+    IERC20x internal reserveToken;
     // TODO does anything below need to actually be public except for testing?
     /// @notice Aave Pool for lending + borrowing
     IAaveMarket public aaveMarket;
@@ -49,17 +49,13 @@ contract FunETH is IFunETH, ERC20, Ownable {
     /// @notice Address of the actual debt asset. e.g. USDC
     address public debtAsset;
 
-    struct City {
-        address fun_dingo; // current lend contract
-        uint256 owed; // how many tokens funETH can redeem on fun_dingo
-    }
-
-    mapping(address => City) public cities;
+    mapping(address => uint256) public vaults;
 
     ///@notice who deposited, how much, where they want yield directed, who recruited mate
     event Deposit(
-        address indexed mate, address indexed receiver, uint256 dubloons, address indexed city, address referrer
+        address indexed mate, address indexed receiver, uint256 dubloons, address indexed vault, address referrer
     );
+    event Signal(address indexed mate, address indexed vault, address indexed referrer, uint256 shares);
     ///@notice who withdrew, how much
     event Withdrawal(address indexed me, address indexed to, uint256 dubloons);
     ///@notice where we are farming, what token, how much was deposited
@@ -68,10 +64,10 @@ contract FunETH is IFunETH, ERC20, Ownable {
     event PullReserves(address indexed treasurer, address indexed token, uint256 dubloons);
     ///@notice who underwrote loan, what token is borrowed, who loan was given to, amount of tokens lent
     event Lend(
-        address indexed treasurer, address indexed debtToken, address indexed city, uint256 dubloons, address fun_dingo
+        address indexed treasurer, address indexed debtToken, address indexed vault, uint256 dubloons, address fun_dingo
     );
-    event LoanRepaid(address indexed city, address indexed fun_dingo, uint256 dubloons);
-    event LoanClosed(address indexed city, address indexed fun_dingo);
+    event LoanRepaid(address indexed vault, address indexed fun_dingo, uint256 dubloons);
+    event LoanClosed(address indexed vault, address indexed fun_dingo);
 
     error UnsupportedChain();
     error InvalidReserveMarket();
@@ -98,8 +94,16 @@ contract FunETH is IFunETH, ERC20, Ownable {
         return _symbol;
     }
 
-    function decimals() public view override(IFunETH, ERC20) returns (uint8) {
+    function decimals() public view override(IFunETH, ERC4626) returns (uint8) {
         return _decimals;
+    }
+
+    function asset() public view override(IFunETH, ERC4626) returns (address) {
+        return address(reserveToken);
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return underlying();
     }
 
     function initialize(
@@ -111,7 +115,7 @@ contract FunETH is IFunETH, ERC20, Ownable {
         string memory symbol_
     ) public {
         _initializeOwner(FUN_OPS);
-        if (address(reserveToken) != address(0)) revert AlreadyInitialized();
+        if(address(reserveToken) != address(0)) revert AlreadyInitialized();
 
         // naive check if funCity governance is deployed on this chain
         if (getContractSize(FUN_OPS) == 0) revert UnsupportedChain();
@@ -129,7 +133,7 @@ contract FunETH is IFunETH, ERC20, Ownable {
         debtAsset = debtToken.UNDERLYING_ASSET_ADDRESS();
 
         // approve aave market for both assets so we dont have to call refresh()
-        ERC20(debtAsset).approve(address(aaveMarket), type(uint256).max);
+        ERC4626(debtAsset).approve(address(aaveMarket), type(uint256).max);
         reserveToken.approve(address(aaveMarket), type(uint256).max);
 
         uint8 reserveDecimals = reserveToken.decimals();
@@ -142,38 +146,48 @@ contract FunETH is IFunETH, ERC20, Ownable {
         }
 
         // aave automatically enables non-isolated assets (aka majors) on initial supply
-        
+
+    }
+
+    function _useVirtualShares() internal view virtual override returns (bool) {
+        return false;
     }
 
     /// @dev WETH compliant interface
-    function deposit(uint256 dubloons) public {
-        _deposit(msg.sender, msg.sender, dubloons, address(FUN_OPS), address(this));
+    function deposit(uint256 dubloons) public virtual returns (uint256 shares) {
+        shares = convertToAssets(dubloons);
+        _deposit(msg.sender, msg.sender, dubloons, shares);
+        emit Signal(msg.sender, address(FUN_OPS), address(this), shares);
     }
 
     /// @dev ERC4626 compliant interface
-    function deposit(uint256 dubloons, address receiver) public {
-        _deposit(msg.sender, receiver, dubloons, address(FUN_OPS), address(this));
+    function deposit(uint256 dubloons, address receiver) public virtual override returns (uint256 shares) {
+        shares = convertToAssets(dubloons);
+        _deposit(msg.sender, receiver, dubloons, shares);
+        emit Signal(msg.sender, address(FUN_OPS), address(this), shares);
     }
 
-    function depositWithPreference(uint256 dubloons, address receiver, address city, address referrer) public {
-        _deposit(msg.sender, receiver, dubloons, city, referrer);
+    function depositWithPreference(uint256 dubloons, address receiver, address vault, address referrer) public returns (uint256 shares) {
+        shares = convertToAssets(dubloons);
+        _deposit(msg.sender, receiver, dubloons, shares);
+        emit Signal(msg.sender, vault, referrer, shares);
     }
 
     /// @notice helper function for integrators e.g. LP farming to simplify UX
-    function depositAndApprove(address spender, uint256 dubloons) public {
-        _deposit(msg.sender, msg.sender, dubloons, address(FUN_OPS), address(this));
-        approve(spender, dubloons);
+    function depositAndApprove(address spender, uint256 dubloons) public returns (uint256 shares) {  
+        shares = convertToAssets(dubloons);
+        approve(spender, shares);
+        _deposit(msg.sender, msg.sender, dubloons, shares);
+        emit Signal(msg.sender, address(FUN_OPS), address(this), shares);
     }
 
-    function _deposit(address owner, address receiver, uint256 dubloons, address city, address referrer) public {
-        if (dubloons < MIN_DEPOSIT) revert BelowMinDeposit();
-        if (receiver == address(0)) revert InvalidReceiver();
+    function _deposit(address by, address to, uint256 assets, uint256 shares) internal virtual override {
+        if (assets < MIN_DEPOSIT) revert BelowMinDeposit(); // TODO remove?
+        if (to == address(0)) revert InvalidReceiver();
 
-        reserveToken.transferFrom(owner, address(this), dubloons);
-        farm(address(reserveToken), reserveToken.balanceOf(address(this))); // schloop tokens sent directly too
-        _mint(receiver, dubloons);
+        super._deposit(by, to, assets, shares);
 
-        emit Deposit(owner, receiver, dubloons, city, referrer);
+        farm(address(reserveToken), assets); // schloop tokens sent directly too
     }
 
     function farm(address _reserveToken, uint256 dubloons) public {
@@ -183,25 +197,17 @@ contract FunETH is IFunETH, ERC20, Ownable {
     }
 
     /// @dev WETH compliant interface
-    function withdraw(uint256 dubloons) public {
-        _withdraw(msg.sender, msg.sender, dubloons);
+    function withdraw(uint256 dubloons) public returns (uint256 shares) {
+        shares = convertToShares(dubloons);
+        _withdraw(msg.sender, msg.sender, msg.sender, dubloons, shares);
     }
 
-    /// @dev ERC4626 compliant interface
-    function redeem(uint256 shares, address to, address owner) public {
-        if (msg.sender != owner) {
-            _spendAllowance(owner, msg.sender, shares);
-        }
+    function _withdraw(address by, address to, address owner, uint256 assets, uint256 shares) internal virtual override {
+        super._withdraw(owner, to, owner, assets, 0);
 
-        _withdraw(owner, to, shares);
-    }
-
-    function _withdraw(address owner, address to, uint256 dubloons) internal {
-        _burn(owner, dubloons);
-        aaveMarket.withdraw(address(reserveToken), dubloons, to);
+        aaveMarket.withdraw(address(reserveToken), assets, to);
         // check *after* withdrawing and aave updates collateral balance
         if (getExpectedHF() < MIN_REDEEM_FACTOR) revert MaliciousWithdraw();
-        emit Withdrawal(owner, to, dubloons);
     }
 
     function _assertFinancialHealth() internal view {
@@ -250,64 +256,52 @@ contract FunETH is IFunETH, ERC20, Ownable {
         }
     }
 
-    function reindexShares() public {
-        uint256 yieldEarned = getYieldEarned();
-        uint256 totalSupply = totalSupply();
-        uint256 newSharePrice = (underlying() + yieldEarned) / totalSupply;
-        // TODO add scaled 
-        // _reindexShares(newSharePrice);
-    }
-
     /**
      * @notice Allow projects to borrow against funCity collateral with Aave credit delegation.
      *     Technically this will almost always make us frational reserve.
      *     But it is a self-repaying loan that eventually becomes solvent
-     * @param city - nnzalu popup city to receive loan.
+     * @param vault - nnzalu popup vault to receive loan.
      * @param fun_dingo - ERC4626 to deposit for yield. We assume only FunFunding contract
      * @param dubloons - Should be Aave market denominated. Usually USD to 10 decimals
      */
-    function lend(address city, address fun_dingo, uint256 dubloons) public onlyOwner {
-        // TODO remove city struct? more brittle code and doesnt serve a purpose except 
-        // ensuring 1:1 loan per city which can be gamed anyway by using a different ctiy address
+    function lend(address vault, address fun_dingo, uint256 dubloons) public onlyOwner {
+        // TODO remove vault struct? more brittle code and doesnt serve a purpose except 
+        // ensuring 1:1 loan per vault which can be gamed anyway by using a different ctiy address
 
         aaveMarket.borrow(debtAsset, dubloons, AAVE_DEBT_INTEREST_MODE, 200, address(this));
         IERC20x(debtAsset).approve(fun_dingo, dubloons);
 
-        cities[city] = City({
-            fun_dingo: fun_dingo,
-            //  allow doing multiple deposits to same fun_dingo
-            owed: cities[city].owed + IFunFunding(fun_dingo).deposit(dubloons, address(this))
-        });
+        vaults[vault] = vaults[vault] + IFunFunding(fun_dingo).deposit(dubloons, address(this));
         _assertFinancialHealth();
 
-        emit Lend(msg.sender, address(debtAsset), city, dubloons, fun_dingo);
+        emit Lend(msg.sender, address(debtAsset), vault, dubloons, fun_dingo);
     }
 
-    function repay(address city, uint256 dubloons) public {
+    function repay(address vault, uint256 dubloons) public {
         // TODO no problem letting anyone call for loans bc alwauys profit
         // but if supporting any 4626 then need to gatekeep to prevent griefing by making us pull at a loss, taking withdraw fees immeditaely, etc.
-        City memory creditInfo = cities[city];
 
         // TODO decide if tracking in shares vs assets per vault. assets is easier for aave integration
-        if (creditInfo.fun_dingo == address(0)) revert CityNotLent();
+        uint256 owed = vaults[vault];
+        if (owed == 0) revert CityNotLent();
         // if (dubloons > creditInfo.owed) revert InvalidLoanClaim();
 
         // Even if status == INIT/CANCELED we get back total expected tokens with redeem()
-        try IFunFunding(creditInfo.fun_dingo).withdraw(dubloons, address(this), address(this)) returns (uint256 assets) {
+        try IFunFunding(vault).withdraw(dubloons, address(this), address(this)) returns (uint256 assets) {
             // TODO should save rsa rate in cities? Easier to calculate non-funfunding here while maintaining assurances
             // making lend/repay more flexible for higher yield strategies is pretty good.
 
             // _repayOrComp deals with aave specific lending/farming logic.
             _repayOrCompound(dubloons);
 
-            // our accounting is based on cities[city].owed
-            if (dubloons == creditInfo.owed) {
-                emit LoanRepaid(city, creditInfo.fun_dingo, dubloons);
-                emit LoanClosed(city, creditInfo.fun_dingo);
-                delete cities[city];
+            // our accounting is based on vaults[vault].owed
+            if (dubloons == owed) {
+                emit LoanRepaid(vault, vault, dubloons);
+                emit LoanClosed(vault, vault);
+                delete vaults[vault];
             } else {
-                cities[city].owed -= dubloons;
-                emit LoanRepaid(city, creditInfo.fun_dingo, dubloons);
+                vaults[vault] = owed - dubloons;
+                emit LoanRepaid(vault, vault, dubloons);
             }
         } catch {
             revert InvalidLoanClaim();
@@ -338,6 +332,7 @@ contract FunETH is IFunETH, ERC20, Ownable {
     }
 
     /// @notice total amount of tokens deposited in aave. Denominated in reserrveToken decimals
+    // TODO remove, vesitigial with totalAssets() for 4626
     function underlying() public view returns (uint256) {
         return aToken.balanceOf(address(this)) / reserveVsATokenDecimalOffset;
     }

@@ -61,16 +61,16 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         assertGt(funETH.underlying(), aTokenBalance + 1);
     }
 
-    function test_lend_canDelegateCredit(address city) public assumeValidAddress(city) {
+    function test_lend_canDelegateCredit(address vault) public assumeValidAddress(vault) {
         uint256 n = _depositnnEth(makeAddr("boogawugi"), 100 ether, true);
 
         // todo expect call to funETH.debtToken
-        // bytes memory data = abi.encodeWithSelector(IERC20x.approveDelegation.selector, city, n);
+        // bytes memory data = abi.encodeWithSelector(IERC20x.approveDelegation.selector, vault, n);
         // vm.expectCall(address(funETH.debtToken()), data, 1);
 
-        uint256 credit0 = debtToken.borrowAllowance(address(funETH), city);
+        uint256 credit0 = debtToken.borrowAllowance(address(funETH), vault);
         assertEq(credit0, 0);
-        (, uint256 credit) = funETH.cities(city);
+        uint256 credit = funETH.vaults(vault);
         assertEq(credit, 0);
 
         address treasury = funETH.owner();
@@ -81,13 +81,13 @@ contract FunETHAaveIntegration is FunETHBaseTest {
 
         vm.prank(treasury);
         vm.expectEmit(true, true, true, false);
-        emit FunETH.Lend(address(treasury), asset, city, borrowable, rsa);
-        funETH.lend(city, rsa, borrowable);
+        emit FunETH.Lend(address(treasury), asset, vault, borrowable, rsa);
+        funETH.lend(vault, rsa, borrowable);
 
         assertEq(IERC20x(asset).balanceOf(address(rsa)), borrowable);
     }
 
-    function test_lend_canBorrowAgainst(address user, address city, uint256 amount) public assumeValidAddress(city) {
+    function test_lend_canBorrowAgainst(address user, address vault, uint256 amount) public assumeValidAddress(vault) {
         uint256 n = _depositForBorrowing(user, amount);
         (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
@@ -107,12 +107,12 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         assertGt(funETH.convertToDecimal(hf, 18, 0), funETH.MIN_RESERVE_FACTOR()); // condition cleared to borrow even without delegation
 
         // for some reason test fails if this goes first even though nothing borrowed and getExpectedHF not used
-        _lend(city, borrowable);
+        _lend(vault, borrowable);
     }
 
-    function test_borrow_debtTokenBalanceIncreases(address user, address city, uint256 amount)
+    function test_borrow_debtTokenBalanceIncreases(address user, address vault, uint256 amount)
         public
-        assumeValidAddress(city)
+        assumeValidAddress(vault)
     {
         uint256 n = _depositForBorrowing(user, amount);
         (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
@@ -120,7 +120,7 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         (,uint256 debtBase,,,,) = aave.getUserAccountData(address(funETH));
 
         assertEq(debtToken.balanceOf(address(funETH)), 0);
-        _lend(city, borrowable);
+        _lend(vault, borrowable);
         assertLe(debtToken.balanceOf(address(funETH)) - 1, borrowable); // weird aave offset spot
 
         (,uint256 debtBasePost,,,,) = aave.getUserAccountData(address(funETH));
@@ -135,17 +135,17 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         assertGt(price, 0);
     }
 
-    function test_repay_farmsDebtAssetIfNoDebt(address user, address city, uint256 amount)
+    function test_repay_farmsDebtAssetIfNoDebt(address user, address vault, uint256 amount)
         public
-        assumeValidAddress(city)
+        assumeValidAddress(vault)
     {
         amount = _depositnnEth(makeAddr("jknsafioui"), amount, true);
         (, uint256 borrowable) = _borrowable(amount);
         
-        FunFunding funFund = FunFunding(factory.deployFunFunding(city, funETH.debtAsset(), 10_000, "RSA Revenue Stream Tokenasdf", "rsaCLAIM8129"));
+        FunFunding funFund = FunFunding(factory.deployFunFunding(vault, funETH.debtAsset(), 10_000, "RSA Revenue Stream Tokenasdf", "rsaCLAIM8129"));
 
         vm.prank(funETH.owner());
-        funETH.lend(city, address(funFund), borrowable);
+        funETH.lend(vault, address(funFund), borrowable);
         uint256 shares = borrowable * funFund.rewardRate() / 10_000;
         
         // enable redemptions for funETH
@@ -163,8 +163,8 @@ contract FunETHAaveIntegration is FunETHBaseTest {
 
         vm.expectEmit(true, true, true, true);
         // deposit/redeem in shares so calculate underlying redeemed from deposited amount
-        emit FunETH.LoanRepaid(city, address(funFund), totalOwed / 2);
-        funETH.repay(city, totalOwed / 2);
+        emit FunETH.LoanRepaid(vault, address(funFund), totalOwed / 2);
+        funETH.repay(vault, totalOwed / 2);
         
         // no extra collateral yet
         // check balance of debtAsset aToken not reserveAsset aToken balance.
@@ -178,7 +178,7 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         
         emit log_named_uint("shares burned2", totalOwed / 2 - 1);
         emit log_named_uint("shares burned2", funFund.balanceOf(address(funETH)) * 10_000 / funFund.rewardRate() );
-        funETH.repay(city, totalOwed / 2 - 1);
+        funETH.repay(vault, totalOwed / 2 - 1);
         (uint256 collateralBase2, ,,,,) = aave.getUserAccountData(address(funETH));
         
         assertGt(collateralBase2, collateralBasex);
@@ -218,14 +218,14 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         assertEq(allowance, type(uint256).max);
     }
 
-    function test_repay_debtDecreases(address user, address city, uint256 amount)
+    function test_repay_debtDecreases(address user, address vault, uint256 amount)
         public
-        assumeValidAddress(city)
+        assumeValidAddress(vault)
     {
         uint256 n = _depositForBorrowing(user, amount);
         (uint256 totalCredit, uint256 borrowable) = _borrowable(n);
 
-        FunFunding fund = _lend(city, borrowable);
+        FunFunding fund = _lend(vault, borrowable);
 
         (,uint256 debtBase1,,,,) = aave.getUserAccountData(address(funETH));
         assertGt(debtBase1, 0);
@@ -233,7 +233,7 @@ contract FunETHAaveIntegration is FunETHBaseTest {
         deal(address(borrowToken), address(fund), borrowable);
         fund.repay();
         vm.prank(funETH.owner());
-        funETH.repay(city, borrowable);
+        funETH.repay(vault, borrowable);
         (,uint256 debtBase2,,,,) = aave.getUserAccountData(address(funETH));
         assertLt(debtBase2, debtBase1);
     }

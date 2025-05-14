@@ -108,8 +108,8 @@ contract FunCityLandRegistry is ERC721, GPv2Helper {
         if (_curator == address(0)) revert InvalidCurator();
         funETH = IFunETH(_funETH);
         funUSDC = IFunETH(_funUSDC);
-        USDC = funUSDC.reserveToken();
-        WETH = funETH.reserveToken();
+        USDC = IERC20x(funUSDC.asset());
+        WETH = IERC20x(funETH.asset());
         curator = _curator;
         // milkman = _milkman;
     }

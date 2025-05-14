@@ -59,10 +59,10 @@ contract FunETHCore is FunETHBaseTest {
     }
 
     function test_initialize_setsProperDepositToken() public view {
-        if (address(funETH.reserveToken()) == address(WETH)) {
+        if (address(funETH.asset()) == address(WETH)) {
             assertEq(address(funETH.aToken()), address(0xD4a0e0b9149BCee3C920d2E00b5dE09138fd8bb7));
             return;
-        } else if (address(funETH.reserveToken()) == address(USDC)) {
+        } else if (address(funETH.asset()) == address(USDC)) {
             assertEq(address(funETH.aToken()), address(0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB));
         } else {
             revert("Invalid reserve token");
@@ -234,7 +234,7 @@ contract FunETHCore is FunETHBaseTest {
 
         // assertGe(yield, funETH.aToken().balanceOf(funETH.owner()) - 1);
         assertGe(yield, funETH.balanceOf(funETH.owner()));
-        assertEq(0, funETH.reserveToken().balanceOf(funETH.owner()));
+        assertEq(0, IERC20x(funETH.asset()).balanceOf(funETH.owner()));
         assertEq(0, funETH.aToken().balanceOf(funETH.owner()));
     }
 
@@ -246,7 +246,7 @@ contract FunETHCore is FunETHBaseTest {
         address funCity = funETH.owner();
         assertEq(0, funETH.underlying());
         assertEq(0, funETH.aToken().balanceOf(funCity));
-        assertEq(0, funETH.reserveToken().balanceOf(funCity));
+        assertEq(0, IERC20x(funETH.asset()).balanceOf(funCity));
 
         uint256 n = _depositnnEth(depositor, amount, true);
         vm.warp(block.timestamp + 888888);
@@ -266,7 +266,7 @@ contract FunETHCore is FunETHBaseTest {
         // approximate bc i cant figure out this 1 wei yield from aave
         assertGe(reservesToPull + 5, funETH.aToken().balanceOf(funCity));
 
-        emit log_named_uint("city bal 3", funETH.reserveToken().balanceOf(funCity));
+        emit log_named_uint("vault bal 3", IERC20x(funETH.asset()).balanceOf(funCity));
 
         uint256 yield2 = funETH.getYieldEarned();
         emit log_named_uint("net interest 2", yield2);
@@ -320,20 +320,20 @@ contract FunETHCore is FunETHBaseTest {
         assertEq(unhealthyHF, funETH.getExpectedHF());
     }
 
-    function test_lend_borrowFailsIfOverDebtRatio(address city, uint256 _deposit) public assumeValidAddress(city) {
+    function test_lend_borrowFailsIfOverDebtRatio(address vault, uint256 _deposit) public assumeValidAddress(vault) {
         uint256 deposit = _depositForBorrowing(makeAddr("boogawugi"), _deposit);
         (uint256 delegatedCredit, uint256 borrowable) = _borrowable(deposit);
 
-        _lend(city, borrowable);
+        _lend(vault, borrowable);
 
         // LTV above target
         (,, uint256 availableBorrow,, uint256 ltv, uint256 hf) = aave.getUserAccountData(address(funETH));
         assertGe(hf, funETH.MIN_RESERVE_FACTOR());
 
-        address rsa = factory.deployFunFunding(city, funETH.debtAsset(), 100, "teawfafst", "tegaevaawfwst");
+        address rsa = factory.deployFunFunding(vault, funETH.debtAsset(), 100, "teawfafst", "tegaevaawfwst");
         vm.expectRevert();
         vm.prank(funETH.owner());
-        funETH.lend(city, rsa, borrowable);
+        funETH.lend(vault, rsa, borrowable);
 
         // LTV still above target
         (,, uint256 availableBorrow2,, uint256 ltv2, uint256 hf2) = aave.getUserAccountData(address(funETH));
@@ -347,14 +347,14 @@ contract FunETHCore is FunETHBaseTest {
         (, uint256 borrowable) = _borrowable(deposited);
         vm.warp(block.timestamp + 888);
         
-        address city = makeAddr("boogawugi");
-        IERC20x funfund = IERC20x(factory.deployFunFunding(city, address(funETH.debtAsset()), 1000, "test", "test"));
+        address vault = makeAddr("boogawugi");
+        IERC20x funfund = IERC20x(factory.deployFunFunding(vault, address(funETH.debtAsset()), 1000, "test", "test"));
         uint256 shares = borrowable * 11_000 / 10_000;
         
         vm.prank(funETH.owner());
-        funETH.lend(city, address(funfund), borrowable / 2);
+        funETH.lend(vault, address(funfund), borrowable / 2);
         assertEq(funfund.balanceOf(address(funETH)), shares / 2);
-        funETH.lend(city, address(funfund), borrowable / 2);
+        funETH.lend(vault, address(funfund), borrowable / 2);
         assertEq(funfund.balanceOf(address(funETH)), shares);
     }
     function test_lend_worksWithAny4626Vault(uint256 deposited) public {
@@ -371,8 +371,8 @@ contract FunETHCore is FunETHBaseTest {
             vault4626 = address(0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca);
 
         vm.prank(funETH.owner());
-        address city = makeAddr("boogawugi");
-        funETH.lend(city, vault4626, borrowable);
+        address vault = makeAddr("boogawugi");
+        funETH.lend(vault, vault4626, borrowable);
         assertGe(IERC20x(vault4626).balanceOf(address(funETH)), 0);
     }
 
@@ -396,16 +396,16 @@ contract FunETHCore is FunETHBaseTest {
         (,uint256 debtBase,,,,) = aave.getUserAccountData(address(funETH));
         assertEq(debtBase, 0);
         vm.prank(funETH.owner());
-        address city = makeAddr("boogawugi");
-        funETH.lend(city, vault4626, borrowable);
+        address vault = makeAddr("boogawugi");
+        funETH.lend(vault, vault4626, borrowable);
         uint256 shares = IERC20x(vault4626).balanceOf(address(funETH));
         (,uint256 debtBase1,,,,) = aave.getUserAccountData(address(funETH));
 
         vm.expectEmit(true, true, true, true);
         // deposit/redeem in shares so calculate underlying redeemed from deposited amount
         uint256 redeemedShares = (redeemed * shares) / borrowable; // TODO vault.previewWithdraw()
-        emit FunETH.LoanRepaid(city, vault4626, redeemed);
-        funETH.repay(city, redeemed);
+        emit FunETH.LoanRepaid(vault, vault4626, redeemed);
+        funETH.repay(vault, redeemed);
 
         (,uint256 debtBase2,,,,) = aave.getUserAccountData(address(funETH));
 

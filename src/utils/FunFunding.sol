@@ -19,6 +19,7 @@ import {IFunETH, IERC20x, IFunFactory, IAaveMarket, ReserveData} from "../Interf
  * @dev - reference  https://github.com/charlesndalton/milkman/blob/main/contracts/Milkman.sol
  */
  
+ // TODO make ERC4626 ERC4626
  contract FunFunding is ERC20, Ownable {
     // TODO inherit ERC4626 for easier calcs
     using GPv2Order for GPv2Order.Data;
@@ -470,7 +471,7 @@ import {IFunETH, IERC20x, IFunFactory, IAaveMarket, ReserveData} from "../Interf
      * @dev callable by anyone. no state change, MEV, exploit potential
      * @return amount - amount of ETH wrapped
      */
-    function wrap() external whileActive returns (uint256 amount) {
+    function wrap() external returns (uint256 amount) {
         uint256 initialBalance = WETH.balanceOf(address(this));
         amount = address(this).balance;
 
